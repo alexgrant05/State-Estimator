@@ -5,6 +5,16 @@ vivado/
 *.log
 *.str
 
+# Python digital-twin build products
+sim/.venv/
+sim/.pytest_cache/
+sim/.ruff_cache/
+sim/outputs/
+sim/build/
+**/__pycache__/
+*.py[cod]
+*.egg-info/
+
 # Keep these
 !build.tcl
 !.gitignore

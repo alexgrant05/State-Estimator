@@ -1,0 +1,8 @@
+{
+  "command": "0x6800",
+  "data_counter": 65534,
+  "response_words": 10,
+  "sha256": "e33ac34a9563e060a0116bc7db99aed8d1097168b47d57a1fdaf9a3d2bc416d0",
+  "transaction_bits": 176
+}
+

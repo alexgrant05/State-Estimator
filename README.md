@@ -1,35 +1,51 @@
 # State Estimator
 
-FPGA-based state estimator for Cornell Rocketry, targeting the AMD Kria KR260
-(K26 SOM + Robotics Starter Kit carrier card). Integrates with a Python
-digital twin for simulation and validation before flight.
+State-estimation platform for Cornell Rocketry, targeting the AMD Kria KR260
+(K26 SOM + Robotics Starter Kit carrier). The repository contains both the
+Vivado hardware skeleton and the Python reference digital twin used to validate
+sensor timing, packets, and estimator behavior before hardware deployment.
 
 ## Repository layout
 
-- `build.tcl` — Regenerates the Vivado project + block design from scratch
-- `src/rtl/` — Custom Verilog/SystemVerilog sources
-- `src/constraints/` — XDC constraint files
-- `src/tb/` — Testbenches
-- `vivado/` — Generated Vivado project (gitignored, not tracked)
+- `build.tcl` — regenerates the Vivado project and block design
+- `src/rtl/` — custom Verilog/SystemVerilog sources
+- `src/constraints/` — XDC constraints
+- `src/tb/` — RTL testbenches
+- `sim/` — installable Python digital twin and validation suite
+- `vivado/` — generated Vivado project (ignored)
 
-## Setup
+## Digital twin
 
-```bash
-cd State-Estimator
+The first implemented slice is:
+
+```text
+Andromeda RocketPy truth
+    -> ADIS16470 model
+    -> 100 MHz timestamped logical events + exact burst transactions
+    -> 15-state inertial ESKF
+    -> validation report
+```
+
+See [`sim/README.md`](sim/README.md) for setup, commands, conventions, output
+artifacts, and acceptance gates.
+
+## Vivado setup
+
+```powershell
 vivado -mode batch -source build.tcl
 ```
 
-Rebuilds the project under `vivado/State-Estimation/`, configured for the
-KR260 with the Zynq UltraScale+ PS block design and board preset applied.
+This rebuilds `vivado/State-Estimation/` for the KR260 board. Digital-twin work
+does not modify or depend on the generated Vivado project.
 
 ## Status
 
-- [x] Project skeleton + KR260 board configuration
-- [x] Zynq UltraScale+ PS block design (board preset applied)
-- [ ] Sensor interface configuration (SPI/I2C/UART for IMU, baro, GNSS)
-- [ ] Timestamping/data-integrity coprocessor RTL
-- [ ] Connection automation (PS <-> PL wiring) once coprocessor RTL exists
-- [ ] Sensor-interface XDC constraints
-- [ ] Integration with Python digital twin
-- [ ] Build/flash workflow (still TBD)
-- [ ] Linux bring-up on target (after hardware flow is solid)
+- [x] KR260 project skeleton and Zynq UltraScale+ PS block design
+- [x] ADIS16470 Python vertical slice and replay format
+- [x] Event-driven inertial ESKF and layered validation
+- [ ] ADXL375 model and high-g transition logic
+- [ ] BMP581 pressure/temperature model
+- [ ] GNSS navigation, PPS, latency, and outage model
+- [ ] Common multi-sensor FPGA packet envelope
+- [ ] Sensor acquisition and timestamping RTL
+- [ ] Cortex R5F estimator port and replay comparison
