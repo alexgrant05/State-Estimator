@@ -13,8 +13,6 @@ Kalman filter used to validate behavior before flight-hardware deployment.
 - `src/tb/`: RTL testbenches.
 - `sim/`: installable Python digital twin, estimator, replay tools, and tests.
 - `vivado/`: generated Vivado project, excluded from source control.
-- `digital_twin_update_overview.md`: digital-twin architecture and update notes.
-- `fpga_state_estimator_system_overview.md`: FPGA and estimator system design.
 
 ## Current reference pipeline
 
