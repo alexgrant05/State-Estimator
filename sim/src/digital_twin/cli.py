@@ -12,10 +12,10 @@ from pathlib import Path
 from typing import Any
 
 from . import __version__
-from .adis16470 import Adis16470Model
 from .config import load_config
 from .eskf import InertialEskf
-from .transport import read_events, write_replay
+from .pipeline import generate_all_events
+from .transport import read_events, write_multi_replay
 from .truth import generate_andromeda_truth
 from .validation import calculate_metrics, load_validation, write_error_plot, write_report, write_states
 
@@ -58,15 +58,15 @@ def run_simulation(config_path: Path, seed: int | None, output: Path) -> dict[st
     actual_seed = config.simulation.seed if seed is None else seed
 
     truth, truth_summary = generate_andromeda_truth(config)
-    events = Adis16470Model(config.adis16470, config.simulation, actual_seed).generate(truth)
+    events = generate_all_events(truth, config, actual_seed)
     event_path = output / "events.ndjson"
-    replay_path = output / "adis16470_bursts.bin"
-    write_replay(events, event_path, replay_path)
+    replay_stats = write_multi_replay(events, event_path, output)
     round_trip_events = list(read_events(event_path))
     estimates = InertialEskf(config).run(round_trip_events)
     states_path = output / "states.csv"
     write_states(states_path, estimates)
-    metrics = calculate_metrics(truth, round_trip_events, estimates, config, replay_path)
+    replay_paths = {name: output / name for name in replay_stats}
+    metrics = calculate_metrics(truth, round_trip_events, estimates, config, replay_paths)
 
     validation_path = output / "validation.json"
     validation_path.write_text(json.dumps(metrics, indent=2, sort_keys=True) + "\n", encoding="utf-8")
@@ -74,7 +74,7 @@ def run_simulation(config_path: Path, seed: int | None, output: Path) -> dict[st
     write_error_plot(output / "errors.png", truth, estimates, config.simulation.clock_hz)
 
     manifest = {
-        "schema_version": 1,
+        "schema_version": 2,
         "seed": actual_seed,
         "source_revision": _source_revision(),
         "configuration": {
@@ -83,9 +83,18 @@ def run_simulation(config_path: Path, seed: int | None, output: Path) -> dict[st
         },
         "versions": _versions(),
         "truth_summary": truth_summary,
+        "calibration": {
+            "status": "uncalibrated-generic-defaults",
+            "deferred": [
+                "sensor mounting and lever arms",
+                "ADXL375 scale, bias, and misalignment",
+                "BMP581 pressure-port and thermal behavior",
+                "receiver-specific GNSS errors, latency, and wire codec",
+            ],
+        },
         "artifacts": {
             path.name: {"bytes": path.stat().st_size, "sha256": _sha256(path)}
-            for path in (event_path, replay_path, states_path, validation_path)
+            for path in (event_path, states_path, validation_path, *replay_paths.values())
         },
         "passed": metrics["passed"],
     }
@@ -94,7 +103,7 @@ def run_simulation(config_path: Path, seed: int | None, output: Path) -> dict[st
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Cornell Rocketry ADIS16470 digital twin")
+    parser = argparse.ArgumentParser(description="Cornell Rocketry multi-sensor digital twin")
     subparsers = parser.add_subparsers(dest="command", required=True)
     run_parser = subparsers.add_parser("run", help="generate truth, replay, ESKF states, and validation")
     run_parser.add_argument("--config", type=Path, required=True)
@@ -123,4 +132,3 @@ def main(argv: list[str] | None = None) -> int:
 
 if __name__ == "__main__":  # pragma: no cover
     raise SystemExit(main())
-

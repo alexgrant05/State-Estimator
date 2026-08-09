@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import csv
 import json
+import struct
 from pathlib import Path
 from typing import Any
 
@@ -11,15 +12,20 @@ import numpy as np
 
 from .config import TwinConfig
 from .frames import attitude_error_deg
-from .transport import AdisBurst, read_transactions
-from .types import MeasurementEvent, StateEstimate, TruthSample
+from .transport import ADIS_TRANSACTION_WORDS, GNSS_PPS_FORMAT, GNSS_SOLUTION_FORMAT, AdisBurst
+from .types import MeasurementEvent, SensorId, StateEstimate, TruthSample
 
 
 def monte_carlo_statistics(config: TwinConfig, seeds: int = 200) -> dict[str, Any]:
     """Check sensor moments and inertial propagation coverage over fixed seeds."""
 
     from .adis16470 import Adis16470Model, decode_event
-    from .truth import analytic_truth
+    from .adxl375 import Adxl375Model, decode_event as decode_adxl
+    from .bmp581 import Bmp581Model, decode_event as decode_bmp
+    from .geodesy import ecef_from_enu_rotation, geodetic_to_ecef
+    from .gnss import GenericGnssModel
+    from .transport import GnssSolution
+    from .truth import analytic_truth, standard_atmosphere
 
     short_truth = analytic_truth(
         0.05,
@@ -45,6 +51,53 @@ def monte_carlo_statistics(config: TwinConfig, seeds: int = 200) -> dict[str, An
     noise_std_gate = (
         expected_gyro_sigma == 0.0 and observed_gyro_sigma == 0.0
     ) or abs(observed_gyro_sigma / expected_gyro_sigma - 1.0) <= 0.25
+
+    sensor_statistics: dict[str, dict[str, float | bool]] = {}
+    auxiliary_moments_passed = True
+    if config.adxl375.enabled:
+        readings = []
+        for seed in range(seeds):
+            generated = Adxl375Model(config.adxl375, config.simulation, seed).generate(short_truth)
+            readings.extend(decode_adxl(event, config.adxl375, config.simulation).accel_body_mps2[0] for event in generated)
+        values = np.asarray(readings)
+        expected_sigma = config.adxl375.noise_density_mg_sqrt_hz * 1e-3 * config.simulation.gravity_mps2 * np.sqrt(config.adxl375.output_rate_hz / 2.0)
+        observed_mean = float(np.mean(values))
+        observed_sigma = float(np.std(values, ddof=1))
+        mean_gate = abs(observed_mean) <= 3.0 * expected_sigma / np.sqrt(len(values)) + config.simulation.gravity_mps2 / 20.5 / 2.0
+        std_gate = abs(observed_sigma / expected_sigma - 1.0) <= 0.25 if expected_sigma else observed_sigma == 0.0
+        auxiliary_moments_passed &= mean_gate and std_gate
+        sensor_statistics["adxl375_x"] = {"mean": observed_mean, "sigma": observed_sigma, "expected_sigma": expected_sigma, "passed": bool(mean_gate and std_gate)}
+    if config.bmp581.enabled:
+        readings = []
+        for seed in range(seeds):
+            generated = Bmp581Model(config.bmp581, config.simulation, seed).generate(short_truth)
+            readings.extend(decode_bmp(event).pressure_pa for event in generated)
+        values = np.asarray(readings)
+        expected_pressure = standard_atmosphere(config.launch.elevation_msl_m)[0]
+        observed_mean_error = float(np.mean(values) - expected_pressure)
+        observed_sigma = float(np.std(values, ddof=1))
+        expected_sigma = config.bmp581.pressure_noise_pa
+        mean_gate = abs(observed_mean_error) <= 3.0 * expected_sigma / np.sqrt(len(values)) + 1.0 / 128.0
+        std_gate = abs(observed_sigma / expected_sigma - 1.0) <= 0.25 if expected_sigma else observed_sigma == 0.0
+        auxiliary_moments_passed &= mean_gate and std_gate
+        sensor_statistics["bmp581_pressure"] = {"mean_error": observed_mean_error, "sigma": observed_sigma, "expected_sigma": expected_sigma, "passed": bool(mean_gate and std_gate)}
+    if config.gnss.enabled:
+        origin = geodetic_to_ecef(config.launch.latitude_deg, config.launch.longitude_deg, config.launch.elevation_msl_m)
+        ecef_to_enu = ecef_from_enu_rotation(config.launch.latitude_deg, config.launch.longitude_deg).T
+        readings = []
+        for seed in range(seeds):
+            generated = GenericGnssModel(config.gnss, config.launch, config.simulation, seed).generate(short_truth)
+            solution_event = next(event for event in generated if event.sensor_id == SensorId.GNSS_SOLUTION)
+            solution = GnssSolution.from_payload_bytes(solution_event.payload)
+            readings.append(float((ecef_to_enu @ (np.asarray(solution.position_ecef_m) - origin))[0]))
+        values = np.asarray(readings)
+        expected_sigma = float(config.gnss.position_sigma_enu_m[0])
+        observed_mean = float(np.mean(values))
+        observed_sigma = float(np.std(values, ddof=1))
+        mean_gate = abs(observed_mean) <= 3.0 * expected_sigma / np.sqrt(len(values))
+        std_gate = abs(observed_sigma / expected_sigma - 1.0) <= 0.25 if expected_sigma else observed_sigma == 0.0
+        auxiliary_moments_passed &= mean_gate and std_gate
+        sensor_statistics["gnss_east"] = {"mean": observed_mean, "sigma": observed_sigma, "expected_sigma": expected_sigma, "passed": bool(mean_gate and std_gate)}
 
     # Independent discrete white-acceleration propagation check. These weights
     # are the exact velocity and position sensitivities of the mechanization.
@@ -79,8 +132,9 @@ def monte_carlo_statistics(config: TwinConfig, seeds: int = 200) -> dict[str, An
         "gyro_observed_sigma_rps": observed_gyro_sigma,
         "velocity_95pct_coverage": velocity_coverage,
         "position_95pct_coverage": position_coverage,
-        "noise_moments_passed": bool(noise_mean_gate and noise_std_gate),
+        "noise_moments_passed": bool(noise_mean_gate and noise_std_gate and auxiliary_moments_passed),
         "covariance_coverage_passed": bool(coverage_gate),
+        "sensor_statistics": sensor_statistics,
     }
 
 
@@ -89,7 +143,7 @@ def calculate_metrics(
     events: list[MeasurementEvent],
     estimates: list[StateEstimate],
     config: TwinConfig,
-    replay_binary: Path | None = None,
+    replay_binary: Path | dict[str, Path] | None = None,
 ) -> dict[str, Any]:
     truth_by_tick = {sample.ticks: sample for sample in truth}
     position_error: list[float] = []
@@ -120,20 +174,55 @@ def calculate_metrics(
     diagnostic_failures = 0
     unexpected_saturation = 0
     for event in events:
-        burst = AdisBurst.from_payload_bytes(event.payload)
-        checksum_failures += int(not burst.valid_checksum())
-        diagnostic_failures += int(bool(burst.diag_stat))
+        if event.sensor_id == SensorId.ADIS16470:
+            burst = AdisBurst.from_payload_bytes(event.payload)
+            checksum_failures += int(not burst.valid_checksum())
+            diagnostic_failures += int(bool(burst.diag_stat))
         unexpected_saturation += int(bool(int(event.status_flags) & 0x2))
 
-    replay_count = None
-    if replay_binary is not None:
-        replay_count = sum(1 for _ in read_transactions(replay_binary))
+    events_by_sensor = {sensor: [event for event in events if event.sensor_id == sensor] for sensor in SensorId}
+    replay_counts: dict[str, int] = {}
+    replay_round_trip = True
+    if isinstance(replay_binary, Path):
+        replay_counts[replay_binary.name] = replay_binary.stat().st_size // (ADIS_TRANSACTION_WORDS * 2)
+        replay_round_trip = replay_counts[replay_binary.name] == len(events_by_sensor[SensorId.ADIS16470])
+    elif replay_binary:
+        sizes = {
+            "adis16470_bursts.bin": ADIS_TRANSACTION_WORDS * 2,
+            "adxl375_acquisitions.bin": 9,
+            "bmp581_acquisitions.bin": 9,
+            "gnss_solutions.bin": struct.calcsize(GNSS_SOLUTION_FORMAT),
+            "gnss_pps.bin": struct.calcsize(GNSS_PPS_FORMAT),
+        }
+        sensors = {
+            "adis16470_bursts.bin": SensorId.ADIS16470,
+            "adxl375_acquisitions.bin": SensorId.ADXL375,
+            "bmp581_acquisitions.bin": SensorId.BMP581,
+            "gnss_solutions.bin": SensorId.GNSS_SOLUTION,
+            "gnss_pps.bin": SensorId.GNSS_PPS,
+        }
+        for name, path in replay_binary.items():
+            size = sizes[name]
+            replay_round_trip &= path.stat().st_size % size == 0
+            replay_counts[name] = path.stat().st_size // size
+            replay_round_trip &= replay_counts[name] == len(events_by_sensor[sensors[name]])
 
-    expected_interval = (config.adis16470.dec_rate + 1) * (
-        config.simulation.clock_hz // config.simulation.truth_rate_hz
-    )
-    intervals = np.diff([event.measurement_ticks for event in events]) if len(events) > 1 else np.array([])
-    exact_timing = bool(np.all(intervals == expected_interval))
+    expected_intervals = {
+        SensorId.ADIS16470: int((config.adis16470.dec_rate + 1) * config.simulation.clock_hz / config.simulation.truth_rate_hz),
+        SensorId.ADXL375: config.simulation.clock_hz // config.adxl375.output_rate_hz,
+        SensorId.BMP581: config.simulation.clock_hz // config.bmp581.output_rate_hz,
+        SensorId.GNSS_SOLUTION: config.simulation.clock_hz // config.gnss.output_rate_hz,
+        SensorId.GNSS_PPS: config.simulation.clock_hz // config.gnss.pps_rate_hz,
+    }
+    timing_by_sensor: dict[str, bool] = {}
+    for sensor, sensor_events in events_by_sensor.items():
+        if len(sensor_events) < 2:
+            timing_by_sensor[sensor.name.lower()] = True
+            continue
+        intervals = np.diff([event.measurement_ticks for event in sorted(sensor_events, key=lambda item: item.sequence_number)])
+        tolerance = int(np.ceil(6.0 * config.gnss.pps_jitter_ns * config.simulation.clock_hz / 1e9)) if sensor == SensorId.GNSS_PPS else 0
+        timing_by_sensor[sensor.name.lower()] = bool(np.all(np.abs(intervals - expected_intervals[sensor]) <= tolerance))
+    exact_timing = all(timing_by_sensor.values())
     health = estimates[-1].health if estimates else {}
     statistical = monte_carlo_statistics(config)
 
@@ -155,8 +244,15 @@ def calculate_metrics(
         "no_unexpected_saturation": unexpected_saturation == 0,
         "sequence_clean": int(health.get("sequence_discontinuities", 0)) == 0,
         "counter_clean": int(health.get("counter_discontinuities", 0)) == 0,
+        "aiding_history_clean": int(health.get("aiding_history_misses", 0)) == 0,
+        "aiding_updates_present": (
+            not config.gnss.enabled or int(health.get("gnss_updates_accepted", 0)) > 0
+        ) and (
+            not config.bmp581.enabled or int(health.get("bmp_updates_accepted", 0)) > 0
+        ),
+        "pps_synchronized": not config.gnss.enabled or int(health.get("pps_updates", 0)) >= 2,
         "timestamps_exact": exact_timing,
-        "replay_round_trip": replay_count is None or replay_count == len(events),
+        "replay_round_trip": replay_round_trip,
         "states_finite": finite,
         "quaternion_normalized": bool(quaternion_norm_error and max(quaternion_norm_error) < 1e-12),
         "covariance_symmetric": bool(covariance_symmetry_error and max(covariance_symmetry_error) < 1e-10),
@@ -171,12 +267,20 @@ def calculate_metrics(
             "truth_samples": len(truth),
             "measurement_events": len(events),
             "state_estimates": len(estimates),
-            "replay_transactions": replay_count,
+            "events_by_sensor": {sensor.name.lower(): len(values) for sensor, values in events_by_sensor.items()},
+            "replay_transactions": replay_counts,
         },
         "health": dict(health),
         "timing": {
-            "expected_interval_ticks": expected_interval,
-            "output_rate_hz": config.adis16470.output_rate_hz,
+            "expected_interval_ticks": {sensor.name.lower(): value for sensor, value in expected_intervals.items()},
+            "output_rate_hz": {
+                "adis16470": config.adis16470.output_rate_hz,
+                "adxl375": config.adxl375.output_rate_hz,
+                "bmp581": config.bmp581.output_rate_hz,
+                "gnss_solution": config.gnss.output_rate_hz,
+                "gnss_pps": config.gnss.pps_rate_hz,
+            },
+            "exact_by_sensor": timing_by_sensor,
         },
         "errors": {
             "position_m": error_stats(position_error),
@@ -196,6 +300,7 @@ def write_states(path: Path, estimates: list[StateEstimate]) -> None:
     header = [
         "state_ticks",
         "publication_ticks",
+        "gps_time_ns",
         "px_m",
         "py_m",
         "pz_m",
@@ -222,6 +327,7 @@ def write_states(path: Path, estimates: list[StateEstimate]) -> None:
                 [
                     estimate.state_ticks,
                     estimate.publication_ticks,
+                    "" if estimate.gps_time_ns is None else estimate.gps_time_ns,
                     *estimate.position_enu_m,
                     *estimate.velocity_enu_mps,
                     *estimate.q_body_to_nav,
@@ -235,7 +341,7 @@ def write_states(path: Path, estimates: list[StateEstimate]) -> None:
 def write_report(path: Path, metrics: dict[str, Any], truth_summary: dict[str, float]) -> None:
     errors = metrics["errors"]
     lines = [
-        "# ADIS16470 Vertical-Slice Validation",
+        "# Multi-Sensor Digital-Twin Validation",
         "",
         f"**Overall:** {'PASS' if metrics['passed'] else 'FAIL'}",
         "",
@@ -247,7 +353,7 @@ def write_report(path: Path, metrics: dict[str, Any], truth_summary: dict[str, f
         f"- Maximum speed: {truth_summary['max_speed_mps']:.1f} m/s",
         f"- Maximum Mach: {truth_summary['max_mach']:.2f}",
         "",
-        "## Inertial drift (reported, not an aided-navigation gate)",
+        "## Navigation error",
         "",
         f"- Position RMS/final: {errors['position_m']['rms']:.3f} / {errors['position_m']['final']:.3f} m",
         f"- Velocity RMS/final: {errors['velocity_mps']['rms']:.3f} / {errors['velocity_mps']['final']:.3f} m/s",
@@ -257,6 +363,14 @@ def write_report(path: Path, metrics: dict[str, Any], truth_summary: dict[str, f
         "",
     ]
     lines.extend(f"- [{'x' if passed else ' '}] `{name}`" for name, passed in metrics["gates"].items())
+    lines.extend(
+        [
+            "",
+            "## Sensor update health",
+            "",
+            *[f"- `{name}`: {value}" for name, value in sorted(metrics["health"].items())],
+        ]
+    )
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
@@ -282,7 +396,7 @@ def write_error_plot(path: Path, truth: list[TruthSample], estimates: list[State
     axes[2].set_xlabel("simulation time (s)")
     for axis in axes:
         axis.grid(True, alpha=0.3)
-    figure.suptitle("ADIS-only ESKF drift versus RocketPy truth")
+    figure.suptitle("Multi-sensor ESKF error versus RocketPy truth")
     figure.tight_layout()
     figure.savefig(path, dpi=130)
     plt.close(figure)

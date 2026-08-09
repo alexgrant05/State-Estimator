@@ -15,6 +15,64 @@ def _ticks(index: int, clock_hz: int, rate_hz: int) -> int:
     return index * (clock_hz // rate_hz)
 
 
+def standard_atmosphere(altitude_msl_m: float) -> tuple[float, float, float]:
+    """Return ISA pressure, temperature, and density through the lower stratosphere."""
+
+    altitude = float(np.clip(altitude_msl_m, -500.0, 20_000.0))
+    if altitude <= 11_000.0:
+        temperature = 288.15 - 0.0065 * altitude
+        pressure = 101_325.0 * (temperature / 288.15) ** 5.2558797
+    else:
+        temperature = 216.65
+        pressure_11 = 22_632.06
+        pressure = pressure_11 * np.exp(-9.80665 * (altitude - 11_000.0) / (287.05287 * temperature))
+    density = pressure / (287.05287 * temperature)
+    return float(pressure), float(temperature), float(density)
+
+
+def interpolate_truth(samples: list[TruthSample], ticks: int) -> TruthSample:
+    """Interpolate a 2000 Hz truth stream at an arbitrary hardware tick."""
+
+    if not samples or ticks < samples[0].ticks or ticks > samples[-1].ticks:
+        raise ValueError("requested truth tick is outside the available interval")
+    tick_step = samples[1].ticks - samples[0].ticks if len(samples) > 1 else 1
+    lower = min((ticks - samples[0].ticks) // tick_step, len(samples) - 1)
+    if samples[lower].ticks == ticks or lower == len(samples) - 1:
+        return samples[lower]
+    upper = lower + 1
+    a, b = samples[lower], samples[upper]
+    fraction = (ticks - a.ticks) / (b.ticks - a.ticks)
+    q0, q1 = a.q_body_to_nav, b.q_body_to_nav
+    dot = float(q0 @ q1)
+    if dot < 0.0:
+        q1 = -q1
+        dot = -dot
+    if dot > 0.9995:
+        quaternion = normalize_quaternion(q0 + fraction * (q1 - q0))
+    else:
+        angle = np.arccos(np.clip(dot, -1.0, 1.0))
+        quaternion = (
+            np.sin((1.0 - fraction) * angle) * q0 + np.sin(fraction * angle) * q1
+        ) / np.sin(angle)
+
+    def lerp(first, second):
+        return (1.0 - fraction) * first + fraction * second
+
+    return TruthSample(
+        ticks=ticks,
+        position_enu_m=lerp(a.position_enu_m, b.position_enu_m),
+        velocity_enu_mps=lerp(a.velocity_enu_mps, b.velocity_enu_mps),
+        acceleration_enu_mps2=lerp(a.acceleration_enu_mps2, b.acceleration_enu_mps2),
+        q_body_to_nav=quaternion,
+        angular_rate_body_rps=lerp(a.angular_rate_body_rps, b.angular_rate_body_rps),
+        altitude_msl_m=float(lerp(a.altitude_msl_m, b.altitude_msl_m)),
+        ambient_pressure_pa=float(lerp(a.ambient_pressure_pa, b.ambient_pressure_pa)),
+        ambient_temperature_k=float(lerp(a.ambient_temperature_k, b.ambient_temperature_k)),
+        air_density_kgpm3=float(lerp(a.air_density_kgpm3, b.air_density_kgpm3)),
+        mach=float(lerp(a.mach, b.mach)),
+    )
+
+
 def analytic_truth(
     duration_s: float,
     clock_hz: int = 100_000_000,
@@ -48,6 +106,8 @@ def analytic_truth(
             q = normalize_quaternion(quaternion_multiply(q0, delta))
         position = p0 + v0 * time_s + 0.5 * accel * time_s * time_s
         velocity = v0 + accel * time_s
+        pressure, temperature, density = standard_atmosphere(elevation_msl_m + float(position[2]))
+        speed_of_sound = np.sqrt(1.4 * 287.05287 * temperature)
         samples.append(
             TruthSample(
                 ticks=_ticks(index, clock_hz, rate_hz),
@@ -57,6 +117,10 @@ def analytic_truth(
                 q_body_to_nav=q,
                 angular_rate_body_rps=omega.copy(),
                 altitude_msl_m=elevation_msl_m + float(position[2]),
+                ambient_pressure_pa=pressure,
+                ambient_temperature_k=temperature,
+                air_density_kgpm3=density,
+                mach=float(np.linalg.norm(velocity) / speed_of_sound),
             )
         )
     return samples
@@ -160,10 +224,16 @@ def generate_andromeda_truth(config: TwinConfig) -> tuple[list[TruthSample], dic
     w1 = _as_vector(flight.w1, flight_times)
     w2 = _as_vector(flight.w2, flight_times)
     w3 = _as_vector(flight.w3, flight_times)
+    pressure = np.asarray([standard_atmosphere(value)[0] for value in z_msl])
+    temperature = np.asarray([standard_atmosphere(value)[1] for value in z_msl])
+    density = pressure / (287.05287 * temperature)
+    speed = np.sqrt(vx * vx + vy * vy + vz * vz)
+    mach = speed / np.sqrt(1.4 * 287.05287 * temperature)
 
     pad_count = int(round(simulation.pad_duration_s * simulation.truth_rate_hz))
     initial_q = rocketpy_initial_quaternion(launch.rail_inclination_deg, launch.rail_heading_deg)
     samples: list[TruthSample] = []
+    pad_pressure, pad_temperature, pad_density = standard_atmosphere(launch.elevation_msl_m)
     for index in range(pad_count):
         samples.append(
             TruthSample(
@@ -174,6 +244,10 @@ def generate_andromeda_truth(config: TwinConfig) -> tuple[list[TruthSample], dic
                 q_body_to_nav=initial_q.copy(),
                 angular_rate_body_rps=np.zeros(3),
                 altitude_msl_m=launch.elevation_msl_m,
+                ambient_pressure_pa=pad_pressure,
+                ambient_temperature_k=pad_temperature,
+                air_density_kgpm3=pad_density,
+                mach=0.0,
             )
         )
 
@@ -188,6 +262,10 @@ def generate_andromeda_truth(config: TwinConfig) -> tuple[list[TruthSample], dic
                 q_body_to_nav=normalize_quaternion(np.array([e0[flight_index], e1[flight_index], e2[flight_index], e3[flight_index]])),
                 angular_rate_body_rps=np.array([w1[flight_index], w2[flight_index], w3[flight_index]]),
                 altitude_msl_m=float(z_msl[flight_index]),
+                ambient_pressure_pa=float(pressure[flight_index]),
+                ambient_temperature_k=float(temperature[flight_index]),
+                air_density_kgpm3=float(density[flight_index]),
+                mach=float(mach[flight_index]),
             )
         )
 
@@ -200,4 +278,3 @@ def generate_andromeda_truth(config: TwinConfig) -> tuple[list[TruthSample], dic
         "max_mach": float(flight.max_mach_number),
     }
     return samples, summary
-

@@ -16,6 +16,10 @@ Matrix15 = NDArray[np.float64]
 
 class SensorId(IntEnum):
     ADIS16470 = 1
+    ADXL375 = 2
+    BMP581 = 3
+    GNSS_SOLUTION = 4
+    GNSS_PPS = 5
 
 
 class StatusFlag(IntFlag):
@@ -26,6 +30,11 @@ class StatusFlag(IntFlag):
     CHECKSUM_ERROR = 1 << 3
     SEQUENCE_DISCONTINUITY = 1 << 4
     PACKET_LOSS = 1 << 5
+    OVERRUN = 1 << 6
+    STALE = 1 << 7
+    FIX_INVALID = 1 << 8
+    TIME_INVALID = 1 << 9
+    OUT_OF_ORDER = 1 << 10
 
 
 @dataclass(frozen=True, slots=True)
@@ -43,6 +52,10 @@ class TruthSample:
     q_body_to_nav: Quaternion
     angular_rate_body_rps: Vector3
     altitude_msl_m: float
+    ambient_pressure_pa: float = 101_325.0
+    ambient_temperature_k: float = 288.15
+    air_density_kgpm3: float = 1.225
+    mach: float = 0.0
 
 
 @dataclass(frozen=True, slots=True)
@@ -76,4 +89,4 @@ class StateEstimate:
     covariance: Matrix15
     valid: bool
     health: Mapping[str, int] = field(default_factory=dict)
-
+    gps_time_ns: int | None = None

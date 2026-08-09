@@ -67,6 +67,64 @@ gyro_scale_error = [0.0, 0.0, 0.0]
 misalignment_rad = [0.0, 0.0, 0.0]
 sensor_to_body = [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]]
 
+[adxl375]
+enabled = true
+output_rate_hz = 800
+spi_clock_hz = 5000000
+noise_density_mg_sqrt_hz = 5.0
+bias_mps2 = [0.0, 0.0, 0.0]
+bias_rw_mps2_sqrt_s = 0.0
+scale_error = [0.0, 0.0, 0.0]
+misalignment_rad = [0.0, 0.0, 0.0]
+sensor_to_body = [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]]
+
+[bmp581]
+enabled = true
+output_rate_hz = 50
+spi_clock_hz = 5000000
+pressure_oversampling = 16
+temperature_oversampling = 1
+iir_coefficient = 0
+pressure_noise_pa = 0.21
+temperature_noise_c = 0.05
+pressure_bias_pa = 0.0
+pressure_bias_rw_pa_sqrt_s = 0.0
+transonic_error_peak_m = -50.0
+transonic_mach_center = 1.0
+transonic_mach_sigma = 0.12
+
+[gnss]
+enabled = true
+output_rate_hz = 10
+pps_rate_hz = 1
+gps_week = 2400
+start_tow_s = 86400.0
+position_sigma_enu_m = [2.0, 2.0, 3.0]
+velocity_sigma_enu_mps = [0.1, 0.1, 0.15]
+latency_mean_s = 0.12
+latency_jitter_s = 0.02
+pps_jitter_ns = 20.0
+clock_offset_ns = 0.0
+clock_drift_ppm = 0.0
+antenna_lever_arm_body_m = [0.0, 0.0, 0.0]
+position_bias_rw_m_sqrt_s = 0.0
+velocity_bias_rw_mps_sqrt_s = 0.0
+outage_entry_probability = 0.0
+outage_recovery_probability = 1.0
+high_acceleration_outage_g = 0.0
+
+[integration]
+history_duration_s = 2.0
+high_g_enter_fraction = 0.85
+high_g_exit_fraction = 0.75
+high_g_exit_hold_s = 0.025
+high_g_max_age_samples = 2
+overlap_nis_gate = 16.27
+gnss_nis_gate = 22.46
+baro_nis_gate = 6.63
+baro_transonic_min_mach = 0.8
+baro_transonic_max_mach = 1.2
+
 [estimator]
 accel_bias_rw_mps2_sqrt_s = 0.0001
 gyro_bias_rw_rps_sqrt_s = 0.00001
@@ -75,4 +133,3 @@ initial_velocity_sigma_mps = 0.1
 initial_attitude_sigma_deg = 1.0
 initial_accel_bias_sigma_mps2 = 0.05
 initial_gyro_bias_sigma_rps = 0.002
-
