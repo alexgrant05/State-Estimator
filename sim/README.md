@@ -1,34 +1,50 @@
 # Multi-Sensor Digital Twin
 
-This package is the Python reference implementation for the launch-to-apogee
-state-estimation path:
+This package is the Python reference implementation for the Cornell Rocketry
+launch-to-apogee state estimator.
 
 ```text
-10 s pad + Andromeda RocketPy truth at 2000 Hz
+10 s pad alignment + Andromeda RocketPy truth at 2000 Hz
     -> ADIS16470 + ADXL375 + BMP581 + generic GNSS/PPS
     -> timestamped events on the 100 MHz hardware clock
-    -> merged arrival-order replay and shared auxiliary-SPI scheduling
+    -> merged arrival stream and deterministic sensor replays
     -> high-g selection + delayed 15-state ESKF fusion
-    -> deterministic artifacts, plots, metrics, and pass/fail gates
+    -> states, plots, metrics, manifest, and pass/fail gates
 ```
 
 The old digital-twin repository is not required at runtime and is not modified.
 
-## Reference environment
+## Implemented behavior
 
-Python 3.10 through 3.13 is supported. RocketPy is pinned to 1.12.1; the full
-reference environment is recorded in `requirements-lock.txt`.
+- Launch-centered ENU navigation with separate MSL altitude and WGS84 ECEF
+  conversion for GNSS.
+- Scalar-first body-to-navigation quaternions and configurable sensor mounting.
+- ADIS16470 at 500 Hz by default, with exact 176-bit burst transactions.
+- ADXL375 at 800 Hz, with a pre-saturation hysteretic handoff from ADIS.
+- BMP581 at 50 Hz, with raw pressure and temperature registers, pad-pressure
+  calibration, flight-phase suppression, and innovation gating.
+- Generic GNSS at 10 Hz and PPS at 1 Hz, with configurable noise, latency,
+  clock error, correlated outages, covariance, and antenna lever arm.
+- Dedicated ADIS SPI plus deterministic shared-SPI arbitration for ADXL and BMP.
+- Measurement and arrival timestamps for every event.
+- Two-second state history for delayed GNSS and barometer rewind/replay.
+- Independent deterministic random streams and sensor-specific fault injection.
+- Versioned logical events, per-sensor binary replays, hashes, and validation.
+
+The estimator remains float64 with 15 error states: position, velocity,
+attitude, ADIS accelerometer bias, and ADIS gyro bias. ADXL calibration
+uncertainty is added to process noise while ADXL is active.
+
+## Install and run
+
+Python 3.10 through 3.13 is supported. RocketPy is pinned to 1.12.1.
 
 ```powershell
 cd sim
 py -3.10 -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -r requirements-lock.txt
 .\.venv\Scripts\python.exe -m pip install --no-deps -e .
-```
 
-## Run and verify
-
-```powershell
 .\.venv\Scripts\python.exe -m pytest -q
 .\.venv\Scripts\python.exe -m digital_twin run `
   --config config\andromeda.toml `
@@ -38,53 +54,59 @@ py -3.10 -m venv .venv
   --run outputs\andromeda-all-sensors-seed-42
 ```
 
-The run command refuses to overwrite a non-empty directory. Validation failure
+The run command refuses to overwrite a non-empty directory. Any failed gate
 returns a nonzero status.
 
-## Conventions and default sensor profile
+## Configuration and outputs
 
-- Navigation is launch-centered east-north-up (ENU); MSL altitude is retained
-  separately and GNSS crosses the estimator boundary in WGS84 ECEF.
-- Quaternions are scalar-first and rotate body vectors into navigation.
-- Sensor mounting rotations are always applied.
-- Time is a 64-bit 100 MHz counter beginning at pad alignment.
-- ADIS16470 defaults to 500 Hz (`DEC_RATE=3`) on dedicated 1 MHz SPI.
-- ADXL375 defaults to 800 Hz and BMP581 to 50 Hz on serialized auxiliary SPI.
-- Generic GNSS defaults to 10 Hz with a separate 1 Hz PPS event.
-- GNSS position/velocity solutions retain measurement and arrival epochs. The
-  ESKF rewinds within a two-second history, updates at measurement time, and
-  repropagates to the publication epoch.
-- ADIS acceleration is primary. ADXL takes over at 85% of the ADIS range and
-  returns after a 75% threshold, hold interval, freshness check, and overlap
-  consistency gate.
-- BMP establishes pad pressure, is suppressed during boost/transonic flight,
-  and uses pressure/NIS updates in coast.
+`config/andromeda.toml` controls vehicle truth, sensor rates, mounts, errors,
+transport timing, high-g thresholds, aiding gates, history length, and GNSS
+behavior. Generic or vehicle-specific values are marked uncalibrated in the run
+manifest until bench data replaces them.
 
-All rates, errors, gates, mounts, lever arms, transport timing, and latency are
-configuration-driven. Vehicle- and receiver-specific defaults remain explicitly
-uncalibrated until the deferred review and bench-calibration steps are completed.
+Each run produces:
 
-## Replay artifacts
-
-Each run contains:
-
-- `events.ndjson`: merged versioned logical events in arrival order.
-- `adis16470_bursts.bin`: exact 176-bit ADIS transactions.
-- `adxl375_acquisitions.bin`: deterministic ADXL register acquisitions.
-- `bmp581_acquisitions.bin`: deterministic BMP register acquisitions.
+- `events.ndjson`: merged logical events in arrival order.
+- `adis16470_bursts.bin`: exact ADIS transactions.
+- `adxl375_acquisitions.bin` and `bmp581_acquisitions.bin`: register-level SPI
+  acquisitions including separate status reads.
 - `gnss_solutions.bin` and `gnss_pps.bin`: versioned generic receiver packets.
-- `states.csv`, `validation.json`, `validation.md`, and `errors.png`.
-- `manifest.json`: configuration/source/artifact hashes, versions, seed, flight
-  summary, and explicit calibration status.
+- `states.csv`: state, covariance diagonal, local epoch, publication epoch, and
+  synchronized GPS time.
+- `validation.json`, `validation.md`, and `errors.png`.
+- `manifest.json`: seed, versions, source/configuration hashes, artifact hashes,
+  flight summary, and calibration status.
 
-The common FPGA/R5F packet envelope is deliberately not frozen. A future exact
-receiver implements `GnssReceiverAdapter` and translates its wire messages into
-the stable `GnssSolution`/`GnssPps` contracts.
+The generic `GnssReceiverAdapter` isolates the receiver wire format from the
+canonical ECEF solution used by the estimator.
 
 ## Verification
 
-The suite covers frame and WGS84 conversions, quaternion physics, all raw
-scales/codecs, exact timestamp spacing, shared-bus arbitration, deterministic
-replay, high-g handoff, delayed GNSS rewind, PPS synchronization, sensor fault
-campaigns, covariance invariants, 200-seed noise/coverage statistics, and one
-complete Andromeda pad-to-apogee integration run.
+The current suite has 43 tests covering frames, WGS84 conversions, quaternion
+physics, raw sensor scales, codecs, timing, shared-bus ordering, deterministic
+replay, high-g handoff, delayed aiding, PPS synchronization, fault campaigns,
+and covariance invariants. Statistical checks use 200 fixed seeds.
+
+The reference seed-42 Andromeda run passes all integration gates with 54,693
+events, 1,362 delayed rewinds, and zero history misses. Its reported RMS errors
+are 0.149 m position, 0.092 m/s velocity, and 1.121 degrees attitude. These are
+reference results, not final flight acceptance limits.
+
+## Remaining porting work
+
+1. Review the reference outputs and replace placeholder vehicle parameters.
+2. Measure sensor mounting, lever arms, bias, scale, noise, pressure-port error,
+   GNSS latency, and PPS behavior on the flight hardware.
+3. Select the exact GNSS receiver and implement its adapter and wire decoder.
+4. Freeze the common FPGA-to-R5F packet envelope and versioning rules.
+5. Implement FPGA acquisition and timestamping for dedicated ADIS SPI, shared
+   ADXL/BMP SPI, GNSS UART, and PPS capture.
+6. Port the high-g selector, time synchronization, ESKF, aiding gates, and
+   bounded rewind/replay to R5F C or C++.
+7. Replay the generated binaries through RTL and R5F tests and require parity
+   with the Python decoder, health counters, timing, states, and covariance.
+8. Run bench calibration, hardware-in-the-loop tests, Monte Carlo flight cases,
+   and deterministic fault injection before freezing flight acceptance limits.
+
+Descent, fixed-point behavior, and the final common binary envelope remain out
+of scope until the receiver and hardware interfaces are finalized.
