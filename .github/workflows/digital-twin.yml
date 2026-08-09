@@ -1,0 +1,48 @@
+name: Digital Twin
+
+on:
+  push:
+    paths:
+      - "sim/**"
+      - ".github/workflows/digital-twin.yml"
+  pull_request:
+    paths:
+      - "sim/**"
+      - ".github/workflows/digital-twin.yml"
+  workflow_dispatch:
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+          cache: pip
+          cache-dependency-path: sim/requirements-lock.txt
+      - name: Install reference environment
+        working-directory: sim
+        run: |
+          python -m pip install -r requirements-lock.txt
+          python -m pip install --no-deps -e .
+      - name: Unit, analytic, fault, and statistical tests
+        working-directory: sim
+        run: python -m pytest -q
+      - name: Andromeda integration gate
+        working-directory: sim
+        run: |
+          python -m digital_twin run --config config/andromeda.toml --seed 42 --output outputs/ci
+          python -m digital_twin validate --run outputs/ci
+      - name: Upload validation report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: digital-twin-validation
+          path: |
+            sim/outputs/ci/manifest.json
+            sim/outputs/ci/validation.json
+            sim/outputs/ci/validation.md
+            sim/outputs/ci/errors.png
+          if-no-files-found: ignore
