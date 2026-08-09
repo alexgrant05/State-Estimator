@@ -1,18 +1,16 @@
-# Multi-Sensor Digital Twin
+# Digital Twin Simulation
 
-This package is the Python reference implementation for the Cornell Rocketry
-launch-to-apogee state estimator.
+This directory contains the installable Python simulation and validation
+package for the Cornell Rocketry launch-to-apogee state estimator.
 
 ```text
 10 s pad alignment + Andromeda RocketPy truth at 2000 Hz
     -> ADIS16470 + ADXL375 + BMP581 + generic GNSS/PPS
-    -> timestamped events on the 100 MHz hardware clock
+    -> timestamped events on a simulated 100 MHz timebase
     -> merged arrival stream and deterministic sensor replays
     -> high-g selection + delayed 15-state ESKF fusion
     -> states, plots, metrics, manifest, and pass/fail gates
 ```
-
-The old digital-twin repository is not required at runtime and is not modified.
 
 ## Implemented behavior
 
@@ -25,7 +23,8 @@ The old digital-twin repository is not required at runtime and is not modified.
   calibration, flight-phase suppression, and innovation gating.
 - Generic GNSS at 10 Hz and PPS at 1 Hz, with configurable noise, latency,
   clock error, correlated outages, covariance, and antenna lever arm.
-- Dedicated ADIS SPI plus deterministic shared-SPI arbitration for ADXL and BMP.
+- Dedicated ADIS transport plus deterministic shared-SPI arbitration for ADXL
+  and BMP.
 - Measurement and arrival timestamps for every event.
 - Two-second state history for delayed GNSS and barometer rewind/replay.
 - Independent deterministic random streams and sensor-specific fault injection.
@@ -77,7 +76,7 @@ Each run produces:
 - `manifest.json`: seed, versions, source/configuration hashes, artifact hashes,
   flight summary, and calibration status.
 
-The generic `GnssReceiverAdapter` isolates the receiver wire format from the
+The generic `GnssReceiverAdapter` isolates simulated receiver messages from the
 canonical ECEF solution used by the estimator.
 
 ## Verification
@@ -92,21 +91,9 @@ events, 1,362 delayed rewinds, and zero history misses. Its reported RMS errors
 are 0.149 m position, 0.092 m/s velocity, and 1.121 degrees attitude. These are
 reference results, not final flight acceptance limits.
 
-## Remaining porting work
+## Simulation scope
 
-1. Review the reference outputs and replace placeholder vehicle parameters.
-2. Measure sensor mounting, lever arms, bias, scale, noise, pressure-port error,
-   GNSS latency, and PPS behavior on the flight hardware.
-3. Select the exact GNSS receiver and implement its adapter and wire decoder.
-4. Freeze the common FPGA-to-R5F packet envelope and versioning rules.
-5. Implement FPGA acquisition and timestamping for dedicated ADIS SPI, shared
-   ADXL/BMP SPI, GNSS UART, and PPS capture.
-6. Port the high-g selector, time synchronization, ESKF, aiding gates, and
-   bounded rewind/replay to R5F C or C++.
-7. Replay the generated binaries through RTL and R5F tests and require parity
-   with the Python decoder, health counters, timing, states, and covariance.
-8. Run bench calibration, hardware-in-the-loop tests, Monte Carlo flight cases,
-   and deterministic fault injection before freezing flight acceptance limits.
-
-Descent, fixed-point behavior, and the final common binary envelope remain out
-of scope until the receiver and hardware interfaces are finalized.
+The simulation covers the stationary pad period through apogee. Descent,
+fixed-point behavior, calibrated sensor parameters, and final acceptance limits
+are outside the current simulation scope. Generic and vehicle-specific defaults
+remain clearly identified in each run manifest.
