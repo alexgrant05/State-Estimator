@@ -1,0 +1,34 @@
+name: RTL
+
+on:
+  push:
+    paths:
+      - "src/rtl/**"
+      - "src/tb/**"
+      - "tools/install_rtl_tools.sh"
+      - "tools/run_rtl_tests.py"
+      - ".github/workflows/rtl.yml"
+  pull_request:
+    paths:
+      - "src/rtl/**"
+      - "src/tb/**"
+      - "tools/install_rtl_tools.sh"
+      - "tools/run_rtl_tests.py"
+      - ".github/workflows/rtl.yml"
+  workflow_dispatch:
+
+jobs:
+  verilator:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install RTL tools
+        run: bash tools/install_rtl_tools.sh
+      - name: Lint RTL
+        run: python tools/run_rtl_tests.py --lint-only
+      - name: Run module tests
+        run: python tools/run_rtl_tests.py

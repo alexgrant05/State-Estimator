@@ -202,6 +202,12 @@ if {[string equal [get_filesets -quiet sources_1] ""]} {
   create_fileset -srcset sources_1
 }
 
+# Add repository-managed RTL sources.
+set rtl_source_files [glob -nocomplain "$origin_dir/src/rtl/common/*.sv"]
+if {[llength $rtl_source_files] > 0} {
+  add_files -fileset sources_1 -norecurse $rtl_source_files
+}
+
 # Set 'sources_1' fileset object
 set obj [get_filesets sources_1]
 # Set 'sources_1' fileset file properties for remote files

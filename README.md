@@ -41,7 +41,23 @@ Implemented digital-twin behavior includes:
   statistical validation.
 
 See [sim/README.md](sim/README.md) for sensor conventions, configuration,
-artifacts, detailed verification, and the remaining porting sequence.
+artifacts, detailed verification, and simulation scope.
+
+## RTL development
+
+The initial common RTL layer contains a 64-bit timebase, asynchronous event
+timestamp capture, a ready/valid synchronous FIFO, and a fixed-priority arbiter.
+Each module has an independent self-checking Verilator test.
+
+```bash
+bash tools/install_rtl_tools.sh
+python3 tools/run_rtl_tests.py --lint-only
+python3 tools/run_rtl_tests.py
+```
+
+The setup script supports common Linux distributions, macOS with Homebrew, and
+Windows through MSYS2 UCRT64. Linux CI is the reference environment. See
+[src/README.md](src/README.md) for module conventions and targeted test commands.
 
 ## Digital-twin setup
 
@@ -80,6 +96,8 @@ files are not required by the Python simulation.
 ## Project status
 
 - [x] KR260 project skeleton and Zynq UltraScale+ PS block design.
+- [x] Verilator lint, per-module simulation, and RTL CI workflow.
+- [x] Common timebase, event capture, FIFO, and arbitration modules.
 - [x] ADIS16470 model, exact replay, and inertial propagation.
 - [x] ADXL375 model and high-g transition logic.
 - [x] BMP581 pressure and temperature model with aided updates.
