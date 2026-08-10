@@ -34,6 +34,18 @@
 # Check file required for this script exists
 proc checkRequiredFiles { origin_dir} {
   set status true
+  set required_files [list \
+    "$origin_dir/src/rtl/common/timebase_counter.sv" \
+    "$origin_dir/src/rtl/common/async_event_capture.sv" \
+    "$origin_dir/src/rtl/common/sync_fifo.sv" \
+    "$origin_dir/src/rtl/common/fixed_priority_arbiter.sv" \
+  ]
+  foreach required_file $required_files {
+    if { ![file isfile $required_file] } {
+      puts "ERROR: Required RTL source is missing: $required_file"
+      set status false
+    }
+  }
   return $status
 }
 # Set the reference directory for source file relative paths (by default the value is script directory path)
@@ -208,7 +220,14 @@ set obj [get_filesets sources_1]
 # None
 
 # Set 'sources_1' fileset file properties for local files
-# None
+set rtl_source_files [list \
+  [file normalize "$origin_dir/src/rtl/common/timebase_counter.sv"] \
+  [file normalize "$origin_dir/src/rtl/common/async_event_capture.sv"] \
+  [file normalize "$origin_dir/src/rtl/common/sync_fifo.sv"] \
+  [file normalize "$origin_dir/src/rtl/common/fixed_priority_arbiter.sv"] \
+]
+add_files -fileset sources_1 -norecurse $rtl_source_files
+set_property file_type SystemVerilog [get_files $rtl_source_files]
 
 # Set 'sources_1' fileset properties
 set obj [get_filesets sources_1]
