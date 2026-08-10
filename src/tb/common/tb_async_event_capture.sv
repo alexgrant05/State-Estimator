@@ -14,7 +14,7 @@ module tb_async_event_capture;
     logic overflow_sticky;
     logic [31:0] overflow_count;
 
-    always #5 clk = ~clk;
+    always #5 clk <= ~clk;
 
     timebase_counter timebase (
         .clk,

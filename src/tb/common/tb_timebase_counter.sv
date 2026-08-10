@@ -6,7 +6,7 @@ module tb_timebase_counter;
     logic rst_n = 1'b0;
     logic [63:0] time_ticks;
 
-    always #5 clk = ~clk;
+    always #5 clk <= ~clk;
 
     timebase_counter dut (
         .clk,

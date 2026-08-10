@@ -17,7 +17,7 @@ module tb_sync_fifo;
     logic overflow_sticky;
     logic underflow_sticky;
 
-    always #5 clk = ~clk;
+    always #5 clk <= ~clk;
 
     sync_fifo #(
         .DATA_WIDTH(8),
