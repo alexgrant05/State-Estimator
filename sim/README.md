@@ -1,99 +1,68 @@
-# Digital Twin Simulation
+# Digital Twin
 
-This directory contains the installable Python simulation and validation
-package for the Cornell Rocketry launch-to-apogee state estimator.
+This directory contains the installable Python reference simulation for the
+Cornell Rocketry state estimator. It models launch-to-apogee truth, sensor
+measurements, acquisition timing, replay files, delayed sensor fusion, and
+validation.
 
 ```text
-10 s pad alignment + Andromeda RocketPy truth at 2000 Hz
-    -> ADIS16470 + ADXL375 + BMP581 + generic GNSS/PPS
-    -> timestamped events on a simulated 100 MHz timebase
-    -> merged arrival stream and deterministic sensor replays
-    -> high-g selection + delayed 15-state ESKF fusion
-    -> states, plots, metrics, manifest, and pass/fail gates
+10 s pad alignment + RocketPy truth at 2000 Hz
+    -> ADIS16470, ADXL375, BMP581, and generic GNSS/PPS
+    -> 100 MHz timestamped measurement events
+    -> arrival-ordered sensor replay
+    -> high-g selection and delayed 15-state ESKF
+    -> states, metrics, plots, hashes, and validation gates
 ```
 
-## Implemented behavior
+## Quick start
 
-- Launch-centered ENU navigation with separate MSL altitude and WGS84 ECEF
-  conversion for GNSS.
-- Scalar-first body-to-navigation quaternions and configurable sensor mounting.
-- ADIS16470 at 500 Hz by default, with exact 176-bit burst transactions.
-- ADXL375 at 800 Hz, with a pre-saturation hysteretic handoff from ADIS.
-- BMP581 at 50 Hz, with raw pressure and temperature registers, pad-pressure
-  calibration, flight-phase suppression, and innovation gating.
-- Generic GNSS at 10 Hz and PPS at 1 Hz, with configurable noise, latency,
-  clock error, correlated outages, covariance, and antenna lever arm.
-- Dedicated ADIS transport plus deterministic shared-SPI arbitration for ADXL
-  and BMP.
-- Measurement and arrival timestamps for every event.
-- Two-second state history for delayed GNSS and barometer rewind/replay.
-- Independent deterministic random streams and sensor-specific fault injection.
-- Versioned logical events, per-sensor binary replays, hashes, and validation.
+Python 3.10 through 3.13 is supported. Linux is the reference environment.
 
-The estimator remains float64 with 15 error states: position, velocity,
-attitude, ADIS accelerometer bias, and ADIS gyro bias. ADXL calibration
-uncertainty is added to process noise while ADXL is active.
-
-## Install and run
-
-Python 3.10 through 3.13 is supported. RocketPy is pinned to 1.12.1.
-
-```powershell
+```bash
 cd sim
-py -3.10 -m venv .venv
-.\.venv\Scripts\python.exe -m pip install -r requirements-lock.txt
-.\.venv\Scripts\python.exe -m pip install --no-deps -e .
+python3 -m venv .venv
+.venv/bin/python -m pip install -r requirements-lock.txt
+.venv/bin/python -m pip install --no-deps -e .
+.venv/bin/python -m pytest -q
 
-.\.venv\Scripts\python.exe -m pytest -q
-.\.venv\Scripts\python.exe -m digital_twin run `
-  --config config\andromeda.toml `
-  --seed 42 `
-  --output outputs\andromeda-all-sensors-seed-42
-.\.venv\Scripts\python.exe -m digital_twin validate `
-  --run outputs\andromeda-all-sensors-seed-42
+.venv/bin/python -m digital_twin run \
+  --config config/andromeda.toml \
+  --seed 42 \
+  --output outputs/andromeda-seed-42
+
+.venv/bin/python -m digital_twin validate \
+  --run outputs/andromeda-seed-42
 ```
 
-The run command refuses to overwrite a non-empty directory. Any failed gate
-returns a nonzero status.
+On Windows, replace `.venv/bin/python` with `.venv\Scripts\python.exe`. The
+`run` command refuses to overwrite a non-empty output directory. A failed
+validation gate returns a nonzero status.
 
-## Configuration and outputs
+## Documentation
 
-`config/andromeda.toml` controls vehicle truth, sensor rates, mounts, errors,
-transport timing, high-g thresholds, aiding gates, history length, and GNSS
-behavior. Generic or vehicle-specific values are marked uncalibrated in the run
-manifest until bench data replaces them.
+- [Architecture](docs/architecture.md): subsystem boundaries and data flow.
+- [Setup and CLI](docs/setup-and-cli.md): installation, commands, and exit codes.
+- [Configuration](docs/configuration.md): every TOML section and constraint.
+- [Truth and frames](docs/truth-and-frames.md): RocketPy conversion, ENU, time,
+  quaternions, atmosphere, and analytic truth.
+- [ADIS16470](docs/sensors/adis16470.md): inertial model and exact burst format.
+- [ADXL375](docs/sensors/adxl375.md): high-g model and acquisition format.
+- [BMP581](docs/sensors/bmp581.md): pressure model and acquisition format.
+- [GNSS and PPS](docs/sensors/gnss.md): receiver-neutral model and adapter boundary.
+- [Events and replay](docs/events-and-replay.md): logical schema, timing, ordering,
+  binary files, and reproducibility.
+- [Estimator](docs/estimator.md): initialization, propagation, high-g selection,
+  aiding, rewind/replay, covariance, and health counters.
+- [Validation and testing](docs/validation-and-testing.md): test suite, metrics,
+  gates, fault campaigns, and statistical checks.
+- [Artifacts](docs/artifacts.md): files produced by a run and how to inspect them.
+- [Development guide](docs/development.md): adding sensors, codecs, tests, and
+  calibrated hardware values.
 
-Each run produces:
+## Current scope
 
-- `events.ndjson`: merged logical events in arrival order.
-- `adis16470_bursts.bin`: exact ADIS transactions.
-- `adxl375_acquisitions.bin` and `bmp581_acquisitions.bin`: register-level SPI
-  acquisitions including separate status reads.
-- `gnss_solutions.bin` and `gnss_pps.bin`: versioned generic receiver packets.
-- `states.csv`: state, covariance diagonal, local epoch, publication epoch, and
-  synchronized GPS time.
-- `validation.json`, `validation.md`, and `errors.png`.
-- `manifest.json`: seed, versions, source/configuration hashes, artifact hashes,
-  flight summary, and calibration status.
-
-The generic `GnssReceiverAdapter` isolates simulated receiver messages from the
-canonical ECEF solution used by the estimator.
-
-## Verification
-
-The current suite has 43 tests covering frames, WGS84 conversions, quaternion
-physics, raw sensor scales, codecs, timing, shared-bus ordering, deterministic
-replay, high-g handoff, delayed aiding, PPS synchronization, fault campaigns,
-and covariance invariants. Statistical checks use 200 fixed seeds.
-
-The reference seed-42 Andromeda run passes all integration gates with 54,693
-events, 1,362 delayed rewinds, and zero history misses. Its reported RMS errors
-are 0.149 m position, 0.092 m/s velocity, and 1.121 degrees attitude. These are
-reference results, not final flight acceptance limits.
-
-## Simulation scope
-
-The simulation covers the stationary pad period through apogee. Descent,
-fixed-point behavior, calibrated sensor parameters, and final acceptance limits
-are outside the current simulation scope. Generic and vehicle-specific defaults
-remain clearly identified in each run manifest.
+The simulation covers the stationary pad period through apogee. It uses
+float64 estimation and a generic GNSS wire format. Descent, the final FPGA to
+R5F packet envelope, fixed-point behavior, receiver-specific GNSS framing, and
+flight acceptance limits remain outside the current scope. Values that require
+bench or vehicle calibration are identified in each run manifest.
