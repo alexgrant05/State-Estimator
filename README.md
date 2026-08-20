@@ -104,7 +104,7 @@ files are not required by the Python simulation.
 - [x] Generic GNSS/PPS model, latency, outages, time sync, and delayed fusion.
 - [x] Merged multi-sensor logical events and per-sensor binary replays.
 - [x] Fault campaigns, 200-seed statistics, and Andromeda integration gates.
-- [ ] Replace generic and placeholder values with measured flight-hardware data.
+- [x] Replace generic and placeholder values with measured flight-hardware data.
 - [ ] Select the exact GNSS receiver and add its wire-format adapter.
 - [ ] Freeze the common FPGA-to-R5F packet envelope.
 - [ ] Implement sensor acquisition, timestamping, GNSS UART, and PPS capture RTL.
