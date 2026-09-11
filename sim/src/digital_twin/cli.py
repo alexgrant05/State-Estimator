@@ -1,4 +1,4 @@
-"""Command-line entrypoint for simulation and validation."""
+N"""Command-line entrypoint for simulation and validation."""
 
 from __future__ import annotations
 

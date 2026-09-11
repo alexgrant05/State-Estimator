@@ -86,12 +86,26 @@ history misses, and RMS errors of 0.149 m position, 0.092 m/s velocity, and
 
 ## Vivado setup
 
-```powershell
+```bash
 vivado -mode batch -source build.tcl
+vivado -mode batch -source tools/vivado_build.tcl
 ```
 
-This regenerates `vivado/State-Estimation/` for the KR260. Generated Vivado
-files are not required by the Python simulation.
+The first command regenerates `vivado/State-Estimation/` for the KR260. The
+second validates the block design, creates its HDL wrapper, runs synthesis and
+implementation, and writes the bitstream. With the powered board connected to
+the KR260 micro-USB JTAG/UART port, program the PL with:
+
+```bash
+vivado -mode batch -source tools/vivado_check_jtag.tcl
+vivado -mode batch -source tools/vivado_program.tcl -tclargs \
+  vivado/State-Estimation/State-Estimation.runs/impl_1/state_est_bd_wrapper.bit
+```
+
+The check requires exactly one K26 in the JTAG chain. Programming also reads
+back the FPGA `DONE` bit and fails if configuration did not complete. This JTAG
+operation is volatile and does not modify the board's QSPI flash. Generated
+Vivado files are not required by the Python simulation.
 
 ## Project status
 
