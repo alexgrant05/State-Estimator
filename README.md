@@ -14,6 +14,15 @@ Kalman filter used to validate behavior before flight-hardware deployment.
 - `sim/`: installable Python digital twin, estimator, replay tools, and tests.
 - `vivado/`: generated Vivado project, excluded from source control.
 
+## Tentative hardware and software partition
+
+| Platform | Responsibility | Current state |
+| --- | --- | --- |
+| Programmable logic | Sensor buses, 100 MHz timestamps, event capture, buffering, and packet movement | Common timebase, asynchronous capture, FIFO, and arbitration modules implemented |
+| Cortex R5F | Deterministic sensor decoding, source selection, time synchronization, and 15-state ESKF | Python reference complete; embedded port not started |
+| Linux on Cortex A53 | Configuration, logging, telemetry, health reporting, and operator tools | Planned |
+| Python digital twin | Truth, sensor protocols, deterministic replay, estimator reference, faults, and validation | Active and passing |
+
 ## Current reference pipeline
 
 ```text
@@ -40,6 +49,8 @@ Implemented digital-twin behavior includes:
   for delayed aiding updates.
 - Deterministic fault injection, binary replay, artifact hashing, and 200-seed
   statistical validation.
+- Exact replay artifacts for BNO085 SHTP, ADXL375 and BMP581 SPI acquisitions,
+  and ZED-F9P UART. TIMEPULSE edges remain in the logical NDJSON stream.
 
 See [sim/README.md](sim/README.md) for sensor conventions, configuration,
 artifacts, detailed verification, and simulation scope.
@@ -65,24 +76,32 @@ Windows through MSYS2 UCRT64. Linux CI is the reference environment. See
 Python 3.10 through 3.13 is supported. The reference environment uses the
 versions pinned in `sim/requirements-lock.txt`.
 
-```powershell
+```bash
 cd sim
-py -3.10 -m venv .venv
-.\.venv\Scripts\python.exe -m pip install -r requirements-lock.txt
-.\.venv\Scripts\python.exe -m pip install --no-deps -e .
+python3 -m venv .venv
+.venv/bin/python -m pip install -r requirements-lock.txt
+.venv/bin/python -m pip install --no-deps -e .
 
-.\.venv\Scripts\python.exe -m pytest -q
-.\.venv\Scripts\python.exe -m digital_twin run `
-  --config config\andromeda.toml `
-  --seed 42 `
-  --output outputs\andromeda-all-sensors-seed-42
-.\.venv\Scripts\python.exe -m digital_twin validate `
-  --run outputs\andromeda-all-sensors-seed-42
+.venv/bin/python -m pytest -q
+.venv/bin/python -m digital_twin run \
+  --config config/andromeda.toml \
+  --seed 42 \
+  --output outputs/andromeda-seed-42
+.venv/bin/python -m digital_twin validate \
+  --run outputs/andromeda-seed-42
 ```
 
-The suite covers sensor scales, protocol framing, timestamps, fault handling,
-deterministic replay, estimator invariants, and the seed-42 Andromeda run.
-These checks are reference engineering gates, not final flight limits.
+On Windows, replace `.venv/bin/python` with `.venv\Scripts\python.exe`.
+
+The current suite has 49 passing tests. The seed-42 Andromeda pad-to-apogee run
+passes all 17 validation gates with 74,735 measurement events, 13,794 published
+states, and 1,211 delayed rewinds. Current RMS errors are 0.286 m position,
+0.088 m/s velocity, and 0.821 degrees attitude. These are simulation reference
+results, not final flight limits.
+
+The current Andromeda trajectory peaks near 3.89 g, so it does not naturally
+cross the BNO085 handoff or ZED-F9P invalid-fix thresholds. Dedicated analytic
+tests cover BNO saturation, ADXL handoff, 4 g GNSS invalidation, and recovery.
 
 ## Vivado setup
 
@@ -118,13 +137,8 @@ Vivado files are not required by the Python simulation.
 - [x] ZED-F9P UBX model, TIMEPULSE, latency, outages, time sync, and delayed fusion.
 - [x] Merged multi-sensor logical events and per-sensor binary replays.
 - [x] Fault campaigns, 200-seed statistics, and Andromeda integration gates.
-<<<<<<< HEAD
 - [ ] Replace generic and placeholder values with measured flight-hardware data.
 - [ ] Confirm the ZED-F9P module suffix and freeze its configuration profile.
-=======
-- [x] Replace generic and placeholder values with measured flight-hardware data.
-- [ ] Select the exact GNSS receiver and add its wire-format adapter.
->>>>>>> cba1e7c176a9081daf245b35a3f0121600f3ec7b
 - [ ] Freeze the common FPGA-to-R5F packet envelope.
 - [ ] Implement sensor acquisition, timestamping, GNSS UART, and PPS capture RTL.
 - [ ] Port the selector, time sync, ESKF, and delayed replay to Cortex R5F.
