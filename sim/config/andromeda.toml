@@ -52,12 +52,15 @@ tail_bottom_radius_m = 0.065
 tail_length_m = 0.152
 tail_position_m = -2.60
 
-[adis16470]
-dec_rate = 3
-spi_clock_hz = 1000000
-temperature_c = 25.0
-accel_noise_rms_mg = 2.3
-gyro_noise_rms_dps = 0.17
+[bno085]
+enabled = true
+spi_clock_hz = 3000000
+startup_delay_s = 0.094
+accel_rate_hz = 500
+gyro_rate_hz = 400
+game_rotation_rate_hz = 100
+accel_noise_density_mg_sqrt_hz = 0.0
+gyro_noise_density_dps_sqrt_hz = 0.0
 accel_bias_mps2 = [0.0, 0.0, 0.0]
 gyro_bias_rps = [0.0, 0.0, 0.0]
 accel_bias_rw_mps2_sqrt_s = 0.0
@@ -66,6 +69,11 @@ accel_scale_error = [0.0, 0.0, 0.0]
 gyro_scale_error = [0.0, 0.0, 0.0]
 misalignment_rad = [0.0, 0.0, 0.0]
 sensor_to_body = [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]]
+acceleration_processing_delay_s = 0.0
+gyro_processing_delay_s = 0.0
+game_rotation_processing_delay_s = 0.0066
+acceleration_filter_hz = 0.0
+gyro_filter_hz = 0.0
 
 [adxl375]
 enabled = true
@@ -93,9 +101,9 @@ transonic_error_peak_m = -50.0
 transonic_mach_center = 1.0
 transonic_mach_sigma = 0.12
 
-[gnss]
+[zed_f9p]
 enabled = true
-output_rate_hz = 10
+output_rate_hz = 5
 pps_rate_hz = 1
 gps_week = 2400
 start_tow_s = 86400.0
@@ -111,7 +119,11 @@ position_bias_rw_m_sqrt_s = 0.0
 velocity_bias_rw_mps_sqrt_s = 0.0
 outage_entry_probability = 0.0
 outage_recovery_probability = 1.0
-high_acceleration_outage_g = 0.0
+uart_baud = 460800
+dynamic_limit_g = 4.0
+recovery_time_s = 1.0
+protocol_version = "27.50"
+firmware_profile = "HPG 1.51"
 
 [integration]
 history_duration_s = 2.0

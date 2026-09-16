@@ -15,11 +15,16 @@ Matrix15 = NDArray[np.float64]
 
 
 class SensorId(IntEnum):
+    """Stable wire identifiers. Legacy identifiers must never be reused."""
+
     ADIS16470 = 1
     ADXL375 = 2
     BMP581 = 3
     GNSS_SOLUTION = 4
     GNSS_PPS = 5
+    BNO085_SHTP = 6
+    ZED_F9P_UBX = 7
+    ZED_F9P_TIMEPULSE = 8
 
 
 class StatusFlag(IntFlag):
@@ -90,3 +95,37 @@ class StateEstimate:
     valid: bool
     health: Mapping[str, int] = field(default_factory=dict)
     gps_time_ns: int | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class DecodedInertialReport:
+    """Estimator-facing BNO085 report independent of SHTP framing."""
+
+    report_id: int
+    report_sequence: int
+    status: int
+    vector: Vector3 | None = None
+    bias: Vector3 | None = None
+    quaternion_body_to_nav: Quaternion | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class CanonicalGnssFix:
+    """A complete PVT and covariance pair in launch-centered ENU."""
+
+    gps_week: int
+    tow_ms: int
+    position_enu_m: Vector3
+    velocity_enu_mps: Vector3
+    covariance: NDArray[np.float64]
+    fix_valid: bool
+    time_valid: bool
+    satellites: int
+
+
+@dataclass(frozen=True, slots=True)
+class TimePulse:
+    gps_week: int
+    tow_ms: int
+    uncertainty_ns: float
+    time_valid: bool

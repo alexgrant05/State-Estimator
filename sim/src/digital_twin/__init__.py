@@ -1,13 +1,16 @@
 """Cornell Rocketry digital-twin reference implementation."""
 
-from .types import MeasurementEvent, SensorId, StateEstimate, StatusFlag, TruthSample
+from .types import CanonicalGnssFix, DecodedInertialReport, MeasurementEvent, SensorId, StateEstimate, StatusFlag, TimePulse, TruthSample
 
 __all__ = [
+    "CanonicalGnssFix",
+    "DecodedInertialReport",
     "MeasurementEvent",
     "SensorId",
     "StateEstimate",
     "StatusFlag",
+    "TimePulse",
     "TruthSample",
 ]
 
-__version__ = "0.2.0"
+__version__ = "0.3.0"

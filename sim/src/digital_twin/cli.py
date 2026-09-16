@@ -1,4 +1,4 @@
-N"""Command-line entrypoint for simulation and validation."""
+"""Command-line entrypoint for simulation and validation."""
 
 from __future__ import annotations
 
@@ -11,6 +11,8 @@ import sys
 from pathlib import Path
 from typing import Any
 
+import numpy as np
+
 from . import __version__
 from .config import load_config
 from .eskf import InertialEskf
@@ -18,6 +20,29 @@ from .pipeline import generate_all_events
 from .transport import read_events, write_multi_replay
 from .truth import generate_andromeda_truth
 from .validation import calculate_metrics, load_validation, write_error_plot, write_report, write_states
+from .frames import rotation_matrix
+
+
+def _intervals_above_threshold(truth, config, threshold_g: float, per_axis: bool) -> list[dict[str, float]]:
+    gravity = config.simulation.gravity_mps2
+    active: list[int] = []
+    for sample in truth:
+        force = rotation_matrix(sample.q_body_to_nav).T @ (sample.acceleration_enu_mps2 - np.array([0.0, 0.0, -gravity]))
+        value = np.max(np.abs(force)) if per_axis else np.linalg.norm(force)
+        if value > threshold_g * gravity:
+            active.append(sample.ticks)
+    if not active:
+        return []
+    intervals: list[dict[str, float]] = []
+    start = previous = active[0]
+    step = config.simulation.clock_hz // config.simulation.truth_rate_hz
+    for ticks in active[1:]:
+        if ticks != previous + step:
+            intervals.append({"start_s": start / config.simulation.clock_hz, "end_s": previous / config.simulation.clock_hz})
+            start = ticks
+        previous = ticks
+    intervals.append({"start_s": start / config.simulation.clock_hz, "end_s": previous / config.simulation.clock_hz})
+    return intervals
 
 
 def _sha256(path: Path) -> str:
@@ -74,7 +99,7 @@ def run_simulation(config_path: Path, seed: int | None, output: Path) -> dict[st
     write_error_plot(output / "errors.png", truth, estimates, config.simulation.clock_hz)
 
     manifest = {
-        "schema_version": 2,
+        "schema_version": 3,
         "seed": actual_seed,
         "source_revision": _source_revision(),
         "configuration": {
@@ -83,13 +108,34 @@ def run_simulation(config_path: Path, seed: int | None, output: Path) -> dict[st
         },
         "versions": _versions(),
         "truth_summary": truth_summary,
+        "protocols": {
+            "bno085": {
+                "transport": "SHTP over SPI mode 3",
+                "spi_clock_hz": config.bno085.spi_clock_hz,
+                "startup_delay_s": config.bno085.startup_delay_s,
+                "reports_hz": {"acceleration": config.bno085.accel_rate_hz, "uncalibrated_gyro": config.bno085.gyro_rate_hz, "game_rotation_vector": config.bno085.game_rotation_rate_hz},
+            },
+            "zed_f9p": {
+                "firmware_profile": config.zed_f9p.firmware_profile,
+                "ubx_protocol": config.zed_f9p.protocol_version,
+                "uart": 1,
+                "baud": config.zed_f9p.uart_baud,
+                "navigation_rate_hz": config.zed_f9p.output_rate_hz,
+                "timepulse_rate_hz": config.zed_f9p.pps_rate_hz,
+            },
+        },
+        "expected_high_dynamic_intervals": {
+            "bno085_acceleration_handoff": _intervals_above_threshold(truth, config, 8.0 * config.integration.high_g_enter_fraction, True),
+            "zed_f9p_fix_invalid": _intervals_above_threshold(truth, config, config.zed_f9p.dynamic_limit_g, False),
+        },
         "calibration": {
-            "status": "uncalibrated-generic-defaults",
+            "status": "bench-calibration-pending",
             "deferred": [
                 "sensor mounting and lever arms",
                 "ADXL375 scale, bias, and misalignment",
                 "BMP581 pressure-port and thermal behavior",
-                "receiver-specific GNSS errors, latency, and wire codec",
+                "BNO085 noise, filtering, mounting, and vehicle calibration",
+                "ZED-F9P antenna, correlated error, and RF environment",
             ],
         },
         "artifacts": {

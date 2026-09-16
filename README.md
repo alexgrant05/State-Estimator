@@ -18,7 +18,7 @@ Kalman filter used to validate behavior before flight-hardware deployment.
 
 ```text
 10 s pad alignment + Andromeda RocketPy truth at 2000 Hz
-    -> ADIS16470 + ADXL375 + BMP581 + generic GNSS/PPS
+    -> BNO085 + ADXL375 + BMP581 + ZED-F9P
     -> 100 MHz timestamped events and deterministic sensor replays
     -> shared-bus scheduling and high-g acceleration selection
     -> delayed 15-state ESKF fusion with rewind/replay
@@ -28,13 +28,14 @@ Kalman filter used to validate behavior before flight-hardware deployment.
 Implemented digital-twin behavior includes:
 
 - Launch-centered ENU navigation, MSL altitude, and WGS84 ECEF GNSS handling.
-- ADIS16470 at 500 Hz with exact 176-bit burst transactions.
-- ADXL375 at 800 Hz with hysteretic handoff before ADIS saturation.
+- BNO085 calibrated acceleration at 500 Hz, uncalibrated gyro at 400 Hz, and
+  diagnostic game rotation vector at 100 Hz over SHTP and SPI mode 3.
+- ADXL375 at 800 Hz with hysteretic handoff before BNO acceleration saturation.
 - BMP581 at 50 Hz with raw register output, pad calibration, flight-phase
   suppression, transonic disturbance modeling, and innovation gating.
-- Generic GNSS at 10 Hz and PPS at 1 Hz with covariance, latency, clock error,
-  antenna lever arm, correlated outages, and a replaceable receiver adapter.
-- Dedicated ADIS SPI and deterministic shared-SPI arbitration for ADXL and BMP.
+- ZED-F9P standalone GNSS at 5 Hz with UBX NAV-PVT, NAV-COV, TIM-TP, and a
+  separate 1 PPS TIMEPULSE event.
+- Dedicated BNO085 SPI and deterministic shared-SPI arbitration for ADXL and BMP.
 - Separate measurement and arrival epochs plus two seconds of estimator history
   for delayed aiding updates.
 - Deterministic fault injection, binary replay, artifact hashing, and 200-seed
@@ -79,10 +80,9 @@ py -3.10 -m venv .venv
   --run outputs\andromeda-all-sensors-seed-42
 ```
 
-The current suite has 43 passing tests. The reference seed-42 Andromeda run
-passes all integration gates with 54,693 events, 1,362 delayed rewinds, zero
-history misses, and RMS errors of 0.149 m position, 0.092 m/s velocity, and
-1.121 degrees attitude. These are reference results, not final flight limits.
+The suite covers sensor scales, protocol framing, timestamps, fault handling,
+deterministic replay, estimator invariants, and the seed-42 Andromeda run.
+These checks are reference engineering gates, not final flight limits.
 
 ## Vivado setup
 
@@ -112,14 +112,14 @@ Vivado files are not required by the Python simulation.
 - [x] KR260 project skeleton and Zynq UltraScale+ PS block design.
 - [x] Verilator lint, per-module simulation, and RTL CI workflow.
 - [x] Common timebase, event capture, FIFO, and arbitration modules.
-- [x] ADIS16470 model, exact replay, and inertial propagation.
+- [x] BNO085 SHTP model, asynchronous reports, and inertial propagation.
 - [x] ADXL375 model and high-g transition logic.
 - [x] BMP581 pressure and temperature model with aided updates.
-- [x] Generic GNSS/PPS model, latency, outages, time sync, and delayed fusion.
+- [x] ZED-F9P UBX model, TIMEPULSE, latency, outages, time sync, and delayed fusion.
 - [x] Merged multi-sensor logical events and per-sensor binary replays.
 - [x] Fault campaigns, 200-seed statistics, and Andromeda integration gates.
 - [ ] Replace generic and placeholder values with measured flight-hardware data.
-- [ ] Select the exact GNSS receiver and add its wire-format adapter.
+- [ ] Confirm the ZED-F9P module suffix and freeze its configuration profile.
 - [ ] Freeze the common FPGA-to-R5F packet envelope.
 - [ ] Implement sensor acquisition, timestamping, GNSS UART, and PPS capture RTL.
 - [ ] Port the selector, time sync, ESKF, and delayed replay to Cortex R5F.

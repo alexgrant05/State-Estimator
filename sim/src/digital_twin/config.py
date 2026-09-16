@@ -35,12 +35,15 @@ class LaunchConfig:
 
 
 @dataclass(frozen=True, slots=True)
-class AdisConfig:
-    dec_rate: int
+class BnoConfig:
+    enabled: bool
     spi_clock_hz: int
-    temperature_c: float
-    accel_noise_rms_mg: float
-    gyro_noise_rms_dps: float
+    startup_delay_s: float
+    accel_rate_hz: int
+    gyro_rate_hz: int
+    game_rotation_rate_hz: int
+    accel_noise_density_mg_sqrt_hz: float
+    gyro_noise_density_dps_sqrt_hz: float
     accel_bias_mps2: NDArray[np.float64]
     gyro_bias_rps: NDArray[np.float64]
     accel_bias_rw_mps2_sqrt_s: float
@@ -50,9 +53,11 @@ class AdisConfig:
     misalignment_rad: NDArray[np.float64]
     sensor_to_body: NDArray[np.float64]
 
-    @property
-    def output_rate_hz(self) -> float:
-        return 2000.0 / (self.dec_rate + 1)
+    acceleration_processing_delay_s: float
+    gyro_processing_delay_s: float
+    game_rotation_processing_delay_s: float
+    acceleration_filter_hz: float
+    gyro_filter_hz: float
 
 
 @dataclass(frozen=True, slots=True)
@@ -86,7 +91,7 @@ class BmpConfig:
 
 
 @dataclass(frozen=True, slots=True)
-class GnssConfig:
+class ZedF9pConfig:
     enabled: bool
     output_rate_hz: int
     pps_rate_hz: int
@@ -104,7 +109,11 @@ class GnssConfig:
     velocity_bias_rw_mps_sqrt_s: float
     outage_entry_probability: float
     outage_recovery_probability: float
-    high_acceleration_outage_g: float
+    uart_baud: int
+    dynamic_limit_g: float
+    recovery_time_s: float
+    protocol_version: str
+    firmware_profile: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -138,10 +147,10 @@ class TwinConfig:
     launch: LaunchConfig
     motor: dict[str, Any]
     rocket: dict[str, Any]
-    adis16470: AdisConfig
+    bno085: BnoConfig
     adxl375: AdxlConfig
     bmp581: BmpConfig
-    gnss: GnssConfig
+    zed_f9p: ZedF9pConfig
     integration: IntegrationConfig
     estimator: EstimatorConfig
     source_path: Path
@@ -161,14 +170,11 @@ def load_config(path: str | Path) -> TwinConfig:
 
     simulation = SimulationConfig(**data["simulation"])
     launch = LaunchConfig(**data["launch"])
-    raw_adis = data["adis16470"].copy()
-    raw_adis["accel_bias_mps2"] = _vector(raw_adis["accel_bias_mps2"], 3, "accel_bias_mps2")
-    raw_adis["gyro_bias_rps"] = _vector(raw_adis["gyro_bias_rps"], 3, "gyro_bias_rps")
-    raw_adis["accel_scale_error"] = _vector(raw_adis["accel_scale_error"], 3, "accel_scale_error")
-    raw_adis["gyro_scale_error"] = _vector(raw_adis["gyro_scale_error"], 3, "gyro_scale_error")
-    raw_adis["misalignment_rad"] = _vector(raw_adis["misalignment_rad"], 3, "misalignment_rad")
-    raw_adis["sensor_to_body"] = np.asarray(raw_adis["sensor_to_body"], dtype=np.float64)
-    adis = AdisConfig(**raw_adis)
+    raw_bno = data["bno085"].copy()
+    for key in ("accel_bias_mps2", "gyro_bias_rps", "accel_scale_error", "gyro_scale_error", "misalignment_rad"):
+        raw_bno[key] = _vector(raw_bno[key], 3, f"bno085.{key}")
+    raw_bno["sensor_to_body"] = np.asarray(raw_bno["sensor_to_body"], dtype=np.float64)
+    bno = BnoConfig(**raw_bno)
     raw_adxl = data.get("adxl375", {}).copy()
     raw_adxl.setdefault("enabled", False)
     raw_adxl.setdefault("output_rate_hz", 800)
@@ -202,7 +208,7 @@ def load_config(path: str | Path) -> TwinConfig:
     })
     raw_gnss = {
         "enabled": False,
-        "output_rate_hz": 10,
+        "output_rate_hz": 5,
         "pps_rate_hz": 1,
         "gps_week": 0,
         "start_tow_s": 0.0,
@@ -218,13 +224,17 @@ def load_config(path: str | Path) -> TwinConfig:
         "velocity_bias_rw_mps_sqrt_s": 0.0,
         "outage_entry_probability": 0.0,
         "outage_recovery_probability": 1.0,
-        "high_acceleration_outage_g": 0.0,
-        **data.get("gnss", {}),
+        "uart_baud": 460800,
+        "dynamic_limit_g": 4.0,
+        "recovery_time_s": 1.0,
+        "protocol_version": "27.50",
+        "firmware_profile": "HPG 1.51",
+        **data.get("zed_f9p", {}),
     }
     raw_gnss["position_sigma_enu_m"] = _vector(raw_gnss["position_sigma_enu_m"], 3, "gnss.position_sigma_enu_m")
     raw_gnss["velocity_sigma_enu_mps"] = _vector(raw_gnss["velocity_sigma_enu_mps"], 3, "gnss.velocity_sigma_enu_mps")
     raw_gnss["antenna_lever_arm_body_m"] = _vector(raw_gnss["antenna_lever_arm_body_m"], 3, "gnss.antenna_lever_arm_body_m")
-    gnss = GnssConfig(**raw_gnss)
+    gnss = ZedF9pConfig(**raw_gnss)
     integration = IntegrationConfig(**{
         "history_duration_s": 2.0,
         "high_g_enter_fraction": 0.85,
@@ -241,24 +251,27 @@ def load_config(path: str | Path) -> TwinConfig:
     estimator = EstimatorConfig(**data["estimator"])
 
     if simulation.truth_rate_hz != 2000:
-        raise ValueError("truth_rate_hz must be 2000 for the ADIS16470 internal clock model")
+        raise ValueError("truth_rate_hz must be 2000 for the asynchronous sensor models")
     if simulation.clock_hz % simulation.truth_rate_hz:
         raise ValueError("clock_hz must be an integer multiple of truth_rate_hz")
-    if not 0 <= adis.dec_rate <= 1999:
-        raise ValueError("ADIS16470 DEC_RATE must be between 0 and 1999")
-    if adis.spi_clock_hz <= 0 or adis.spi_clock_hz > 1_000_000:
-        raise ValueError("ADIS16470 burst SPI clock must be in (0, 1 MHz]")
-    if adis.sensor_to_body.shape != (3, 3):
-        raise ValueError("sensor_to_body must be a 3x3 matrix")
-    if not np.allclose(adis.sensor_to_body.T @ adis.sensor_to_body, np.eye(3), atol=1e-10):
-        raise ValueError("sensor_to_body must be orthonormal")
-    if np.linalg.det(adis.sensor_to_body) < 0.0:
-        raise ValueError("sensor_to_body must be a proper rotation")
-    for name, rate in (("ADXL375", adxl.output_rate_hz), ("BMP581", bmp.output_rate_hz), ("GNSS", gnss.output_rate_hz), ("PPS", gnss.pps_rate_hz)):
+    if bno.spi_clock_hz <= 0 or bno.spi_clock_hz > 3_000_000:
+        raise ValueError("BNO085 SPI clock must be in (0, 3 MHz]")
+    if bno.startup_delay_s < 0.0 or bno.acceleration_filter_hz < 0.0 or bno.gyro_filter_hz < 0.0:
+        raise ValueError("BNO085 startup delay and filter frequencies must be nonnegative")
+    for name, rate, maximum in (("BNO acceleration", bno.accel_rate_hz, 500), ("BNO gyro", bno.gyro_rate_hz, 400), ("BNO game rotation", bno.game_rotation_rate_hz, 400)):
+        if rate <= 0 or rate > maximum or simulation.clock_hz % rate:
+            raise ValueError(f"{name} rate must be a supported integer divisor of clock_hz")
+    if bno.sensor_to_body.shape != (3, 3) or not np.allclose(bno.sensor_to_body.T @ bno.sensor_to_body, np.eye(3), atol=1e-10) or np.linalg.det(bno.sensor_to_body) < 0.0:
+        raise ValueError("bno085.sensor_to_body must be a proper orthonormal 3x3 matrix")
+    for name, rate in (("ADXL375", adxl.output_rate_hz), ("BMP581", bmp.output_rate_hz), ("ZED-F9P", gnss.output_rate_hz), ("PPS", gnss.pps_rate_hz)):
         if rate <= 0 or simulation.clock_hz % rate:
             raise ValueError(f"{name} rate must be a positive integer divisor of clock_hz")
     if adxl.output_rate_hz > 800:
         raise ValueError("the reference ADXL375 codec supports rates through 800 Hz")
+    if gnss.output_rate_hz > 7:
+        raise ValueError("ZED-F9P all-constellation navigation rate must not exceed 7 Hz")
+    if gnss.uart_baud <= 0 or gnss.dynamic_limit_g <= 0.0 or gnss.recovery_time_s < 0.0:
+        raise ValueError("ZED-F9P baud and dynamic limit must be positive, and recovery time must be nonnegative")
     if bmp.pressure_oversampling not in (1, 2, 4, 8, 16, 32, 64, 128):
         raise ValueError("BMP581 pressure oversampling is invalid")
     if bmp.temperature_oversampling not in (1, 2, 4, 8):
@@ -275,10 +288,10 @@ def load_config(path: str | Path) -> TwinConfig:
         launch=launch,
         motor=data["motor"],
         rocket=data["rocket"],
-        adis16470=adis,
+        bno085=bno,
         adxl375=adxl,
         bmp581=bmp,
-        gnss=gnss,
+        zed_f9p=gnss,
         integration=integration,
         estimator=estimator,
         source_path=source_path,
