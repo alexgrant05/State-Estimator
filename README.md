@@ -118,8 +118,13 @@ Vivado files are not required by the Python simulation.
 - [x] ZED-F9P UBX model, TIMEPULSE, latency, outages, time sync, and delayed fusion.
 - [x] Merged multi-sensor logical events and per-sensor binary replays.
 - [x] Fault campaigns, 200-seed statistics, and Andromeda integration gates.
+<<<<<<< HEAD
 - [ ] Replace generic and placeholder values with measured flight-hardware data.
 - [ ] Confirm the ZED-F9P module suffix and freeze its configuration profile.
+=======
+- [x] Replace generic and placeholder values with measured flight-hardware data.
+- [ ] Select the exact GNSS receiver and add its wire-format adapter.
+>>>>>>> cba1e7c176a9081daf245b35a3f0121600f3ec7b
 - [ ] Freeze the common FPGA-to-R5F packet envelope.
 - [ ] Implement sensor acquisition, timestamping, GNSS UART, and PPS capture RTL.
 - [ ] Port the selector, time sync, ESKF, and delayed replay to Cortex R5F.
