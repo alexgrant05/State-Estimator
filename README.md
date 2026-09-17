@@ -113,23 +113,35 @@ vivado -mode batch -source tools/vivado_build.tcl
 
 The first command regenerates `vivado/State-Estimation/` for the KR260. The
 second validates the block design, creates its HDL wrapper, runs synthesis and
-implementation, and writes the bitstream. With the powered board connected to
-the KR260 micro-USB JTAG/UART port, program the PL with:
+implementation, and writes the bitstream and a matching PS initialization script.
+It checks timing, DRC, and the LED/counter configuration-time initial values.
+With the powered board connected to J4 using a micro-USB data cable, check JTAG:
 
 ```bash
 vivado -mode batch -source tools/vivado_check_jtag.tcl
-vivado -mode batch -source tools/vivado_program.tcl -tclargs \
-  vivado/State-Estimation/State-Estimation.runs/impl_1/state_est_bd_wrapper.bit
 ```
 
-The check requires exactly one K26 in the JTAG chain. Programming also reads
-back the FPGA `DONE` bit and fails if configuration did not complete. This JTAG
-operation is volatile and does not modify the board's QSPI flash. Generated
-Vivado files are not required by the Python simulation.
+The check requires exactly one K26 in the JTAG chain. First complete the
+[static LED and multimeter checks](src/README.md#kr260-led-bring-up). Then, on
+a cold-started bench board without a running OS, initialize the blinking design:
+
+```text
+xsdb tools/xsdb_led_bringup.tcl "vivado/State-Estimation/State-Estimation.runs/impl_1/state_est_bd_wrapper.bit" "vivado/State-Estimation/State-Estimation.runs/impl_1/state_est_bd_wrapper.psu_init.tcl"
+```
+
+This programs the PL, initializes the PS clocks, removes PS/PL isolation, and
+releases PS/PL reset. It checks configuration immediately and five seconds after
+initialization, and reads back the PL0 clock enable. A successful FPGA `DONE`
+readback alone does **not** prove that the PS-provided clock is running.
+`tools/vivado_program.tcl` only programs PL and is suitable for the clock-free
+static diagnostic; it does not initialize the PS. These JTAG operations are
+volatile and do not modify QSPI. Generated Vivado files are not required by the
+Python simulation.
 
 For the physical bring-up check, connect J2 pin 1 through a 330 ohm resistor to
-the LED anode, then connect the LED cathode to J2 pin 9 ground. The external LED
-should complete one blink cycle per second after programming. The KR260's
+the LED anode, then connect the LED cathode to verified J2 pin 9 ground. Verify
+connector numbering and ground continuity before powering the circuit. The LED
+should complete one blink cycle per second after PS initialization. The KR260's
 onboard LEDs are power or PS-managed status indicators and are not repurposed.
 
 ## Project status
@@ -137,7 +149,8 @@ onboard LEDs are power or PS-managed status indicators and are not repurposed.
 - [x] KR260 project skeleton and Zynq UltraScale+ PS block design.
 - [x] Verilator lint, per-module simulation, and RTL CI workflow.
 - [x] Common timebase, event capture, FIFO, and arbitration modules.
-- [x] KR260 JTAG, PL clock, and external Pmod LED bring-up design.
+- [x] KR260 JTAG, PL clock, and external Pmod LED bring-up design and diagnostics.
+- [ ] Confirm static-high voltage and repeatable 1 Hz blinking on the physical board.
 - [x] BNO085 SHTP model, asynchronous reports, and inertial propagation.
 - [x] ADXL375 model and high-g transition logic.
 - [x] BMP581 pressure and temperature model with aided updates.

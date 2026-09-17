@@ -13,9 +13,11 @@ module led_blinker #(
     (* X_INTERFACE_INFO = "xilinx.com:signal:reset:1.0 rst_n RST",
        X_INTERFACE_PARAMETER = "POLARITY ACTIVE_LOW" *)
     input  wire  rst_n,
-    output logic led
+    output logic led = 1'b0
 );
 
+    // The JTAG bring-up design ties rst_n high. Both state registers must
+    // therefore have configuration-time initial values, even before clk runs.
     logic [COUNTER_WIDTH-1:0] counter = '0;
 
     initial begin

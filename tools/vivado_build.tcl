@@ -48,15 +48,22 @@ if {[llength [get_files -quiet */state_est_bd_wrapper.v]] == 0} {
 set_property TOP state_est_bd_wrapper [get_filesets sources_1]
 update_compile_order -fileset sources_1
 
-set synth_run [get_runs synth_1]
-set synth_status [get_property STATUS $synth_run]
-set synth_needs_refresh [get_property NEEDS_REFRESH $synth_run]
-if {$synth_needs_refresh || ![string match "*Complete*" $synth_status]} {
-  reset_run synth_1
-} else {
-  puts "BUILD:REUSING_SYNTHESIS=$synth_status"
-  reset_run impl_1
+# The module interface is unchanged. Explicitly rebuild its RTL synthesis;
+# updating only synth_1 can otherwise leave an old out-of-context DCP linked.
+# Avoid update_module_reference: Vivado 2026.1 splits this project's spaced
+# path internally when upgrading the module reference.
+set led_run [get_runs -quiet state_est_bd_led_blinker_0_0_synth_1]
+if {[llength $led_run] == 0} {
+  create_ip_run $bd_file
+  set led_run [get_runs state_est_bd_led_blinker_0_0_synth_1]
 }
+reset_run $led_run
+launch_runs $led_run -jobs 8
+wait_on_run $led_run
+if {![string match "*Complete*" [get_property STATUS $led_run]]} {
+  error "LED module synthesis did not complete successfully."
+}
+reset_run synth_1
 launch_runs impl_1 -to_step write_bitstream -jobs 8
 wait_on_run impl_1
 
@@ -66,6 +73,18 @@ if {![string match "*Complete*" $run_status]} {
 }
 
 open_run impl_1
+
+# Confirm configuration-time startup for the reset-free bring-up circuit.
+set led_registers [get_cells -hier -filter {NAME =~ */led_blinker_0/inst/led_reg}]
+set counter_registers [get_cells -hier -filter {NAME =~ */led_blinker_0/inst/counter_reg* && IS_SEQUENTIAL == 1}]
+if {[llength $led_registers] != 1 || [llength $counter_registers] != 26} {
+  error "Expected one LED and 26 counter registers in the 100 MHz bring-up design."
+}
+foreach register [concat $led_registers $counter_registers] {
+  if {[get_property INIT $register] ne "1'b0"} {
+    error "Bring-up register $register does not initialize to zero."
+  }
+}
 
 set failing_paths [get_timing_paths -quiet -delay_type max -slack_lesser_than 0 -max_paths 1]
 if {[llength $failing_paths] > 0} {
@@ -92,9 +111,19 @@ if {![file exists $bit_file]} {
   error "Implementation completed but bitstream was not found at $bit_file"
 }
 
+# Keep the PS initialization file beside the bitstream from this build.
+set generated_init [file join [get_property IP_OUTPUT_DIR [get_ips state_est_bd_zynq_ultra_ps_e_0_0]] psu_init.tcl]
+if {![file isfile $generated_init]} {
+  error "Generated PS initialization script not found: $generated_init"
+}
+set paired_init [file join $report_dir state_est_bd_wrapper.psu_init.tcl]
+file copy -force $generated_init $paired_init
+
 puts "BUILD:SUCCESS"
 puts "BUILD:PART=$actual_part"
 puts "BUILD:BITSTREAM=[file normalize $bit_file]"
+puts "BUILD:PSU_INIT=[file normalize $paired_init]"
+puts "BUILD:REGISTER_INIT=PASS"
 puts "BUILD:TIMING=PASS"
 puts "BUILD:DRC=PASS"
 close_project
