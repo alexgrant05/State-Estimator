@@ -57,9 +57,10 @@ artifacts, detailed verification, and simulation scope.
 
 ## RTL development
 
-The initial common RTL layer contains a 64-bit timebase, asynchronous event
-timestamp capture, a ready/valid synchronous FIFO, and a fixed-priority arbiter.
-Each module has an independent self-checking Verilator test.
+The initial RTL layer contains a 64-bit timebase, asynchronous event timestamp
+capture, a ready/valid synchronous FIFO, a fixed-priority arbiter, and a KR260
+LED bring-up module. Each module has an independent self-checking Verilator
+test.
 
 ```bash
 bash tools/install_rtl_tools.sh
@@ -126,11 +127,17 @@ back the FPGA `DONE` bit and fails if configuration did not complete. This JTAG
 operation is volatile and does not modify the board's QSPI flash. Generated
 Vivado files are not required by the Python simulation.
 
+For the physical bring-up check, connect J2 pin 1 through a 330 ohm resistor to
+the LED anode, then connect the LED cathode to J2 pin 9 ground. The external LED
+should complete one blink cycle per second after programming. The KR260's
+onboard LEDs are power or PS-managed status indicators and are not repurposed.
+
 ## Project status
 
 - [x] KR260 project skeleton and Zynq UltraScale+ PS block design.
 - [x] Verilator lint, per-module simulation, and RTL CI workflow.
 - [x] Common timebase, event capture, FIFO, and arbitration modules.
+- [x] KR260 JTAG, PL clock, and external Pmod LED bring-up design.
 - [x] BNO085 SHTP model, asynchronous reports, and inertial propagation.
 - [x] ADXL375 model and high-g transition logic.
 - [x] BMP581 pressure and temperature model with aided updates.

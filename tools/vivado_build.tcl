@@ -48,13 +48,43 @@ if {[llength [get_files -quiet */state_est_bd_wrapper.v]] == 0} {
 set_property TOP state_est_bd_wrapper [get_filesets sources_1]
 update_compile_order -fileset sources_1
 
-reset_run synth_1
+set synth_run [get_runs synth_1]
+set synth_status [get_property STATUS $synth_run]
+set synth_needs_refresh [get_property NEEDS_REFRESH $synth_run]
+if {$synth_needs_refresh || ![string match "*Complete*" $synth_status]} {
+  reset_run synth_1
+} else {
+  puts "BUILD:REUSING_SYNTHESIS=$synth_status"
+  reset_run impl_1
+}
 launch_runs impl_1 -to_step write_bitstream -jobs 8
 wait_on_run impl_1
 
 set run_status [get_property STATUS [get_runs impl_1]]
 if {![string match "*Complete*" $run_status]} {
   error "Implementation did not complete successfully: $run_status"
+}
+
+open_run impl_1
+
+set failing_paths [get_timing_paths -quiet -delay_type max -slack_lesser_than 0 -max_paths 1]
+if {[llength $failing_paths] > 0} {
+  set worst_slack [get_property SLACK [lindex $failing_paths 0]]
+  error "Implementation has a failing setup path with slack $worst_slack ns."
+}
+
+set report_dir [get_property DIRECTORY [get_runs impl_1]]
+report_timing_summary -file [file join $report_dir timing_summary.rpt]
+report_drc -file [file join $report_dir drc.rpt]
+set fatal_drc_violations {}
+foreach violation [get_drc_violations -quiet] {
+  set severity [get_property SEVERITY $violation]
+  if {$severity eq "Error" || $severity eq "Critical Warning"} {
+    lappend fatal_drc_violations $violation
+  }
+}
+if {[llength $fatal_drc_violations] > 0} {
+  error "Implementation has [llength $fatal_drc_violations] Error or Critical Warning DRC violations. See [file join $report_dir drc.rpt]."
 }
 
 set bit_file [file join [get_property DIRECTORY [get_runs impl_1]] state_est_bd_wrapper.bit]
@@ -65,4 +95,6 @@ if {![file exists $bit_file]} {
 puts "BUILD:SUCCESS"
 puts "BUILD:PART=$actual_part"
 puts "BUILD:BITSTREAM=[file normalize $bit_file]"
+puts "BUILD:TIMING=PASS"
+puts "BUILD:DRC=PASS"
 close_project
