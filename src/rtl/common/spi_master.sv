@@ -1,3 +1,5 @@
+`default_nettype none
+
 module spimaster #(
      parameter CLOCK_DIVIDE = 100, // 100 mhz / 100 = 1 mhz clock
      parameter CPOL = 0,
@@ -61,7 +63,7 @@ end
 
 always_ff @(posedge sys_clk) begin
 
-     if(rst) begin
+     if(!rst) begin // keeps repo convention of synchronous active-low reset
           //internal registers
           current_state <= IDLE;
           sclk_internal <= CPOL;
@@ -95,7 +97,9 @@ always_ff @(posedge sys_clk) begin
           cs_n <= 0;
 
           //if CPHA = 0: immediately send out MOSI
-          mosi <= tx_data[7]; 
+          //CPHA = 0 only: data must be valid before the first clock edge.
+          //CPHA = 1 drives its first bit at the first leading edge instead,
+          if (CPHA == 0) mosi <= tx_data[7];
 
           current_state <= TXN;
           end
@@ -115,6 +119,7 @@ always_ff @(posedge sys_clk) begin
                //so we do not flip the edge and instead we set cs_n to hold_cs
                //and transition out of the state.
                sclk_edge_count <= 0;
+               clks_since_last_sclk_edge <= 0; // we need to reset this when a transaction completes
                cs_n <= ~hold_cs_reg;
                current_state <= IDLE;
                rx_valid <= 1;
