@@ -115,7 +115,7 @@ if { $validate_required } {
 }
 
 # Create project
-create_project ${_xil_proj_name_} ./vivado/${_xil_proj_name_} -part xck26-sfvc784-2LV-c
+create_project ${_xil_proj_name_} ./vivado/${_xil_proj_name_} -part xck26-sfvc784-2LV-c -force
 
 # Set the directory path for the new project
 set proj_dir [get_property directory [current_project]]
@@ -203,7 +203,7 @@ if {[string equal [get_filesets -quiet sources_1] ""]} {
 }
 
 # Add repository-managed RTL sources.
-set rtl_source_files [glob -nocomplain "$origin_dir/src/rtl/common/*.sv"]
+set rtl_source_files [glob -nocomplain -types f "$origin_dir/src/rtl/*/*.sv"]
 if {[llength $rtl_source_files] > 0} {
   add_files -fileset sources_1 -norecurse $rtl_source_files
 }
@@ -245,7 +245,11 @@ if {[string equal [get_filesets -quiet constrs_1] ""]} {
 # Set 'constrs_1' fileset object
 set obj [get_filesets constrs_1]
 
-# Empty (no sources present)
+# Add repository-managed board and timing constraints.
+set constraint_files [glob -nocomplain -types f "$origin_dir/src/constraints/*.xdc"]
+if {[llength $constraint_files] > 0} {
+  add_files -fileset constrs_1 -norecurse $constraint_files
+}
 
 # Set 'constrs_1' fileset properties
 set obj [get_filesets constrs_1]
@@ -360,8 +364,9 @@ proc cr_bd_state_est_bd { parentCell } {
   ##################################################################
   set bCheckIPs 1
   if { $bCheckIPs == 1 } {
-     set list_check_ips "\ 
+  set list_check_ips "\ 
   xilinx.com:ip:zynq_ultra_ps_e:3.5\
+  xilinx.com:ip:xlconstant:1.1\
   "
 
    set list_ips_missing ""
@@ -416,6 +421,15 @@ proc cr_bd_state_est_bd { parentCell } {
   # Create interface ports
 
   # Create ports
+  set led_0 [ create_bd_port -dir O led_0 ]
+
+  # Create instance: led_blinker_0
+  set led_blinker_0 [ create_bd_cell -type module -reference led_blinker led_blinker_0 ]
+
+  # Keep the standalone bring-up counter out of reset. The PS-to-PL reset may
+  # remain asserted until boot software explicitly releases it.
+  set bringup_reset_n [ create_bd_cell -type ip -vlnv xilinx.com:ip:xlconstant:1.1 bringup_reset_n ]
+  set_property -dict [list CONFIG.CONST_VAL {1}] $bringup_reset_n
 
   # Create instance: zynq_ultra_ps_e_0, and set properties
   set zynq_ultra_ps_e_0 [ create_bd_cell -type ip -vlnv xilinx.com:ip:zynq_ultra_ps_e:3.5 zynq_ultra_ps_e_0 ]
@@ -880,6 +894,9 @@ Port;FD4A0000;FD4AFFFF;1|FPD;DPDMA;FD4C0000;FD4CFFFF;1|FPD;DDR_XMPU5_CFG;FD05000
 
 
   # Create port connections
+  connect_bd_net [get_bd_ports led_0] [get_bd_pins led_blinker_0/led]
+  connect_bd_net [get_bd_pins led_blinker_0/clk] [get_bd_pins zynq_ultra_ps_e_0/pl_clk0]
+  connect_bd_net [get_bd_pins bringup_reset_n/dout] [get_bd_pins led_blinker_0/rst_n]
 
   # Create address segments
 

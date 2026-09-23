@@ -3,6 +3,14 @@
 
 open_hw_manager
 connect_hw_server -allow_non_jtag
+
+set hw_targets [get_hw_targets -quiet]
+if {[llength $hw_targets] != 1} {
+  disconnect_hw_server
+  close_hw_manager
+  error "Expected exactly one JTAG hardware target, found [llength $hw_targets]. Check KR260 power, the J4 micro-USB data cable, and the FTDI driver."
+}
+current_hw_target [lindex $hw_targets 0]
 open_hw_target
 
 set k26_devices [get_hw_devices -quiet -filter {PART == "xck26"}]
