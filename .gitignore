@@ -16,6 +16,10 @@ sim/build/
 *.egg-info/
 .rtl_build/
 
+# PetaLinux is built in the WSL ext4 filesystem. Ignore accidental local output.
+petalinux-build/
+*.xsa
+
 # Keep these
 !build.tcl
 !.gitignore

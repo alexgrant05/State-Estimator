@@ -138,6 +138,17 @@ static diagnostic; it does not initialize the PS. These JTAG operations are
 volatile and do not modify QSPI. Generated Vivado files are not required by the
 Python simulation.
 
+## PetaLinux setup
+
+The Linux image uses PetaLinux 2026.1 to match Vivado 2026.1. WSL2 host
+prerequisites and native ext4 work directories are prepared, and the Vivado
+build exports `vivado/export/state_estimator_kr260.xsa` for the Linux flow.
+PetaLinux itself requires AMD's separately downloaded installer and must run as
+a normal Linux user.
+
+See [docs/petalinux-wsl2.md](docs/petalinux-wsl2.md) for the verified host
+layout, installer command, environment setup, XSA import, and first build.
+
 For the physical bring-up check, connect J2 pin 1 through a 330 ohm resistor to
 the LED anode, then connect the LED cathode to verified J2 pin 9 ground. Verify
 connector numbering and ground continuity before powering the circuit. The LED

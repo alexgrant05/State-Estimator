@@ -119,10 +119,21 @@ if {![file isfile $generated_init]} {
 set paired_init [file join $report_dir state_est_bd_wrapper.psu_init.tcl]
 file copy -force $generated_init $paired_init
 
+# Export the implemented hardware handoff consumed by PetaLinux. Keep it under
+# the generated vivado tree so source control never contains a stale platform.
+set xsa_dir [file join $repo_dir vivado export]
+file mkdir $xsa_dir
+set xsa_file [file join $xsa_dir state_estimator_kr260.xsa]
+write_hw_platform -fixed -include_bit -force -file $xsa_file
+if {![file isfile $xsa_file]} {
+  error "Hardware platform export was not found: $xsa_file"
+}
+
 puts "BUILD:SUCCESS"
 puts "BUILD:PART=$actual_part"
 puts "BUILD:BITSTREAM=[file normalize $bit_file]"
 puts "BUILD:PSU_INIT=[file normalize $paired_init]"
+puts "BUILD:XSA=[file normalize $xsa_file]"
 puts "BUILD:REGISTER_INIT=PASS"
 puts "BUILD:TIMING=PASS"
 puts "BUILD:DRC=PASS"
