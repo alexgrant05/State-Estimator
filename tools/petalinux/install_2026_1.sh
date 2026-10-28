@@ -50,9 +50,12 @@ fi
 
 chmod u+x "$staged_installer"
 printf 'Checksum verified. Accept the AMD licenses when prompted.\n'
-"$staged_installer" --dir "$install_dir" --platform aarch64
+# Launch from an ext4 path without spaces. The AMD installer derives its
+# default log path from the working directory and does not quote that path.
+cd "$cache_dir"
+"$staged_installer" --dir "$install_dir" --platform aarch64 \
+  --log "$cache_dir/install-$version.log"
 
-# shellcheck disable=SC1090
-source "$install_dir/settings.sh"
-command -v petalinux-create >/dev/null
+test -f "$install_dir/settings.sh"
+test -x "$install_dir/scripts/petalinux-create"
 printf '\nPetaLinux %s installed at %s\n' "$version" "$install_dir"

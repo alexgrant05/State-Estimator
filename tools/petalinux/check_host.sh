@@ -54,13 +54,19 @@ fi
 
 required_commands=(
   awk autoconf automake bash bison chrpath cpio diffstat file flex g++ gawk
-  gcc git make patch python3 rsync socat tar texi2any unzip wget xz zstd
+  gcc git make nslookup patch python3 rsync socat tar texi2any unzip wget xz zstd
 )
 for command_name in "${required_commands[@]}"; do
   if ! command -v "$command_name" >/dev/null 2>&1; then
     fail "missing prerequisite command: $command_name"
   fi
 done
+
+if ldconfig -p | grep -q 'libtinfo\.so\.5'; then
+  pass "libtinfo.so.5 compatibility library available"
+else
+  fail "missing libtinfo.so.5 compatibility library required by XSCT"
+fi
 
 if (( failures != 0 )); then
   printf '\nHost check failed with %d issue(s).\n' "$failures" >&2
