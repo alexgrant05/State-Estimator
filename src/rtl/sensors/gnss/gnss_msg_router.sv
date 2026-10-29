@@ -57,6 +57,13 @@ module gnss_msg_router (
 
     logic route_nav, route_bulk;
 
+    // route_nav/route_bulk are only ever read while payload_byte_valid or frame_done
+    // is itself pulsing, both of which only happen within the frame that frame_sof just
+    // set these up for -- so they simply hold between frames rather than being cleared on
+    // frame_done. Clearing them on frame_done would race against that same edge's
+    // combinational nav_frame_done/bulk_frame_done read: a flip-flop update always wins
+    // by the time a combinational tap on it settles, so frame_done would never actually
+    // observe route_nav/route_bulk as still set.
     always_ff @(posedge clk) begin
         if (!rst_n) begin
             route_nav  <= 1'b0;
@@ -64,9 +71,6 @@ module gnss_msg_router (
         end else if (frame_sof) begin
             route_nav  <= (msg_class == CLASS_NAV) && ((msg_id == ID_NAV_PVT) || (msg_id == ID_NAV_COV));
             route_bulk <= (msg_class == CLASS_RXM) && ((msg_id == ID_RXM_RAWX) || (msg_id == ID_RXM_SFRBX));
-        end else if (frame_done) begin
-            route_nav  <= 1'b0;
-            route_bulk <= 1'b0;
         end
     end
 
