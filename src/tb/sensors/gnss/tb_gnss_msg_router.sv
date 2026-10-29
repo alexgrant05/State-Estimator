@@ -2,9 +2,7 @@
 `default_nettype none
 
 module tb_gnss_msg_router;
-    /* verilator lint_off PROCASSINIT */
-    logic clk = 1'b0; // standard free-running clock-gen seed, not a reset-covered value
-    /* verilator lint_on PROCASSINIT */
+    logic clk;
     logic rst_n = 1'b0;
 
     logic [7:0]  payload_byte = 8'h0;
@@ -22,7 +20,12 @@ module tb_gnss_msg_router;
     logic [7:0] nav_msg_id, bulk_msg_id;
     logic       nav_frame_done, nav_checksum_fail, bulk_frame_done, bulk_checksum_fail;
 
-    always #5 clk <= ~clk;
+    // clk is owned entirely by this one process (no declaration initializer), which
+    // keeps Verilator PROCASSINIT quiet without a waiver on any Verilator version
+    initial begin
+        clk = 1'b0;
+        forever #5 clk = ~clk;
+    end
 
     gnss_msg_router dut (
         .clk, .rst_n,

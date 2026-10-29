@@ -2,9 +2,7 @@
 `default_nettype none
 
 module tb_ubx_frame_sync;
-    /* verilator lint_off PROCASSINIT */
-    logic clk = 1'b0; // standard free-running clock-gen seed, not a reset-covered value
-    /* verilator lint_on PROCASSINIT */
+    logic clk;
     logic rst_n = 1'b0;
     logic [7:0] byte_in = 8'h00;
     logic byte_in_valid = 1'b0;
@@ -19,7 +17,12 @@ module tb_ubx_frame_sync;
     logic        frame_done;
     logic        checksum_fail;
 
-    always #5 clk <= ~clk;
+    // clk is owned entirely by this one process (no declaration initializer), which
+    // keeps Verilator PROCASSINIT quiet without a waiver on any Verilator version
+    initial begin
+        clk = 1'b0;
+        forever #5 clk = ~clk;
+    end
 
     ubx_frame_sync dut (
         .clk, .rst_n, .byte_in, .byte_in_valid,
