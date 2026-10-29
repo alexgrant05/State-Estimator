@@ -208,6 +208,12 @@ if {[llength $rtl_source_files] > 0} {
   add_files -fileset sources_1 -norecurse $rtl_source_files
 }
 
+# Add per-sensor RTL sources (e.g. src/rtl/sensors/gnss/*.sv).
+set sensor_rtl_source_files [glob -nocomplain "$origin_dir/src/rtl/sensors/*/*.sv"]
+if {[llength $sensor_rtl_source_files] > 0} {
+  add_files -fileset sources_1 -norecurse $sensor_rtl_source_files
+}
+
 # Set 'sources_1' fileset object
 set obj [get_filesets sources_1]
 # Set 'sources_1' fileset file properties for remote files
