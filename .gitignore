@@ -15,6 +15,7 @@ sim/build/
 *.py[cod]
 *.egg-info/
 .rtl_build/
+boards/*/build/
 
 # Keep these
 !build.tcl
