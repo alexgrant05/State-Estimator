@@ -67,7 +67,7 @@ always_ff @(posedge sys_clk) begin
      if(!rst) begin // keeps repo convention of synchronous active-low reset
           //internal registers
           current_state <= IDLE;
-          sclk_internal <= CPOL;
+          sclk_internal <= 1'(CPOL);
           tx_data_reg <= 0;
           rx_data_reg <= 0;
           clks_since_last_sclk_edge <= 0;

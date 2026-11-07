@@ -38,6 +38,8 @@ DEVICE = "GW2AR-LV18QN88C8/I7"
 FAMILY = "GW2A-18C"
 CLOCK_MHZ = "27"
 BAUD = 115_200
+ROM_BYTES = 256  # gnss_config_sequencer's NUM_BYTES
+FF_DISPLAY_RUN = 8  # monitor: collapse 0xFF runs at least this long
 
 # Verilator's --binary make step breaks on paths containing spaces (macOS
 # gotcha in CONTEXT.md), so its build products default to the temp dir.
@@ -76,8 +78,21 @@ def rtl_sources() -> list[Path]:
 
 def relative(path: Path) -> str:
     # Yosys's read_slang does not accept quoted paths, and the repo path may
-    # contain spaces, so pass paths relative to the repo root instead.
-    return path.relative_to(REPO_ROOT).as_posix()
+    # contain spaces, so pass paths relative to the build directory (where
+    # Yosys runs) instead.
+    return Path(os.path.relpath(path, BUILD_DIR)).as_posix()
+
+
+def write_placeholder_config_rom(directory: Path) -> None:
+    """Write the ROM files gnss_config_sequencer reads with $readmemh.
+
+    The real files don't exist yet (CONTEXT.md open item 2). The board top ties
+    start_sequence low so these are never played; they only have to exist for
+    the design to elaborate. $readmemh paths resolve against the tool's working
+    directory, so they go wherever Yosys or the simulation runs.
+    """
+    (directory / "config_rom.mem").write_text("00\n" * ROM_BYTES)
+    (directory / "config_rom_last.mem").write_text("0\n" * ROM_BYTES)
 
 
 def test(pattern: str | None) -> None:
@@ -96,6 +111,7 @@ def test(pattern: str | None) -> None:
         top = bench.stem
         build_directory = SIM_BUILD_ROOT / top
         build_directory.mkdir(parents=True, exist_ok=True)
+        write_placeholder_config_rom(build_directory)
         run_command(
             [
                 verilator, *options, "--binary", "--timing", "-j", "0",
@@ -112,6 +128,7 @@ def build() -> None:
     nextpnr = require("nextpnr-himbaechel")
     gowin_pack = require("gowin_pack")
     BUILD_DIR.mkdir(exist_ok=True)
+    write_placeholder_config_rom(BUILD_DIR)
     synth_json = BUILD_DIR / "synth.json"
     pnr_json = BUILD_DIR / "pnr.json"
 
@@ -120,7 +137,9 @@ def build() -> None:
         f"read_slang --top {TOP} {files}; "
         f"synth_gowin -top {TOP} -family gw2a -json {relative(synth_json)}"
     )
-    run_command([yosys, "-m", "slang", "-p", script], log=BUILD_DIR / "yosys.log")
+    run_command(
+        [yosys, "-m", "slang", "-p", script], cwd=BUILD_DIR, log=BUILD_DIR / "yosys.log"
+    )
     run_command(
         [
             nextpnr, "--json", str(synth_json), "--write", str(pnr_json),
@@ -159,6 +178,37 @@ def program(to_flash: bool) -> None:
     run_command(command + [str(BITSTREAM)])
 
 
+class ByteFormatter:
+    """Render a mixed text/binary stream: text as-is, anything else as <hex>.
+
+    NMEA sentences stay readable and UBX frames show up as <b5>b<...>. Long
+    0xFF runs (the filler raw_byte_tap lets through after each burst) collapse
+    into a single marker, so they don't bury the data.
+    """
+
+    def __init__(self) -> None:
+        self.ff_run = 0
+
+    def format(self, data: bytes) -> str:
+        output = []
+        for byte in data:
+            if byte == 0xFF:
+                self.ff_run += 1
+                continue
+            output.append(self._flush_ff_run())
+            if byte in (0x0A, 0x0D) or 0x20 <= byte < 0x7F:
+                output.append(chr(byte))
+            else:
+                output.append(f"<{byte:02x}>")
+        return "".join(output)
+
+    def _flush_ff_run(self) -> str:
+        run, self.ff_run = self.ff_run, 0
+        if run >= FF_DISPLAY_RUN:
+            return f"\n[{run} x ff]\n"
+        return "<ff>" * run
+
+
 def monitor(port: str | None) -> None:
     import termios  # POSIX only; avoids depending on pyserial
 
@@ -179,9 +229,9 @@ def monitor(port: str | None) -> None:
         attributes[3] = 0                                        # lflag: raw
         attributes[4] = attributes[5] = termios.B115200
         termios.tcsetattr(fd, termios.TCSANOW, attributes)
+        formatter = ByteFormatter()
         while True:
-            data = os.read(fd, 256)
-            sys.stdout.write(data.decode("ascii", errors="replace"))
+            sys.stdout.write(formatter.format(os.read(fd, 256)))
             sys.stdout.flush()
     except KeyboardInterrupt:
         pass

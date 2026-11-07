@@ -31,7 +31,7 @@
 //          solution_ready, header_ready, log_byte_ready, pps_ready
 // Outputs: sclk, mosi, cs_n, reset_n, safeboot_n, solution_* bundle,
 //          nav_overflow_sticky/count, header_*/log_byte* bundle,
-//          pps_* bundle, status bundle
+//          pps_* bundle, status bundle, rx_byte/rx_byte_valid debug tap
 module gnss_scc #(
     parameter int SPI_CLOCK_DIVIDE       = 100,
     parameter int MAX_NAV_PAYLOAD_BYTES  = 100
@@ -93,7 +93,12 @@ module gnss_scc #(
     output logic         geofence_stat,
     output logic         tx_ready,
     output logic [31:0] checksum_fail_count,
-    output logic         link_timeout_sticky
+    output logic         link_timeout_sticky,
+
+    // raw SPI byte stream before ubx_frame_sync (includes 0xFF idle filler),
+    // tapped for bring-up and debug; leave unconnected if not needed
+    output logic [7:0]   rx_byte,
+    output logic         rx_byte_valid
 );
 
     // TODO: wire reset_n to a PS-controlled power-on/hard-reset sequencer;
@@ -119,9 +124,6 @@ module gnss_scc #(
         .cfg_cmd_ready  (cfg_cmd_ready),
         .cfg_cmd_last   (cfg_cmd_last)
     );
-
-    logic [7:0] rx_byte;
-    logic       rx_byte_valid;
 
     gnss_spi_engine #(
         .CLOCK_DIVIDE (SPI_CLOCK_DIVIDE)
