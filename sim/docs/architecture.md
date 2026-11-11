@@ -7,7 +7,7 @@ The digital twin is the executable reference for later FPGA and R5F work.
 2. `bno085.py`, `adxl375.py`, `bmp581.py`, and `zed_f9p.py` create raw sensor
    packets using independent deterministic random streams.
 3. `pipeline.py` serializes the shared ADXL and BMP SPI bus and merges all
-   events by arrival time. BNO uses dedicated SPI. ZED uses UART1 and a separate
+   events by arrival time. BNO and ZED use dedicated SPI. ZED has a separate
    TIMEPULSE edge.
 4. `transport.py` writes NDJSON metadata and exact sensor byte streams.
 5. `eskf.py` initializes on the pad, propagates on BNO gyro epochs using the

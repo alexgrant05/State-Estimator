@@ -1,0 +1,17 @@
+{
+  "abi_hash": "0464018e401bc6c78a00dfce9234dabf024c8a780a530b3ec1e47161437014e9",
+  "fixtures": {
+    "common_record_v1.bin": {
+      "bytes": 64,
+      "sha256": "c2e83cc8e94ecc6ab579d3c1e819c9469c10d0a36844629d3d95158f121793ca"
+    },
+    "dma_block_v1.bin": {
+      "bytes": 4096,
+      "sha256": "6851a5a3de5d9462a1ad91aa044d1063383966bb57df802a285af139c6510aa7"
+    },
+    "replay_item_v1.bin": {
+      "bytes": 80,
+      "sha256": "4da71517529737ba1fc1b9a05a589823e620de3517c0d8b9acf0d1a7a648d2f8"
+    }
+  }
+}

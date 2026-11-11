@@ -3,7 +3,7 @@
     "adxl375_acquisitions.bin": 241,
     "bmp581_acquisitions.bin": 16,
     "bno085_shtp.bin": 208,
-    "zed_f9p_uart.bin": 5
+    "zed_f9p_spi.bin": 5
   },
   "duration_s": 0.3,
   "event_count": 471,
@@ -20,8 +20,8 @@
     "adxl375_acquisitions.bin": "4c20053b6e70189b77d911e5f72fdbb8485b7d34386984253f2a214510d2184c",
     "bmp581_acquisitions.bin": "50073aebf8e3a1514b85cae56de693bab054500efa801267eb9493a098d09c0b",
     "bno085_shtp.bin": "ee7e21394ee936cc8d212c4c3ad4fbe3e5901973d98eb67a26c98f456d010c4b",
-    "events.ndjson": "768ef6634097f1ec90d6a14fe9396628e7f960810beb80f06c3a7f1b7abc62bb",
-    "zed_f9p_uart.bin": "1a47bf1e9a991e5f82cc35aeb51be79d68c23a364a5137c7e16b0069d5a5f536"
+    "events.ndjson": "c68be97c8adb016120d08f06c7c6ec18645f7ef1fbcecfd0e73e8303765549dc",
+    "zed_f9p_spi.bin": "1a47bf1e9a991e5f82cc35aeb51be79d68c23a364a5137c7e16b0069d5a5f536"
   },
   "pad_duration_s": 0.1,
   "schema_version": 1,

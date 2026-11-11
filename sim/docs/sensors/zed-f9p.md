@@ -1,10 +1,10 @@
 # ZED-F9P Model
 
-The ZED-F9P runs standalone on UART1 at 460800 baud. The default profile is HPG
+The ZED-F9P runs standalone on a dedicated 5 MHz SPI bus. The default profile is HPG
 1.51 with UBX protocol 27.50, 5 Hz navigation, GPS, GLONASS, Galileo, BeiDou,
 and a separate 1 PPS TIMEPULSE signal.
 
-The UART stream contains exact UBX framing for:
+The SPI stream contains exact UBX framing for:
 
 - `UBX-NAV-PVT`, with time, fix flags, geodetic position, NED velocity, and
   accuracy fields
@@ -12,8 +12,8 @@ The UART stream contains exact UBX framing for:
 - `UBX-TIM-TP`, paired with the physical TIMEPULSE event
 
 Frames include sync bytes, class, ID, little-endian length and payload, plus
-CK_A and CK_B. Arrival includes configured receiver latency, jitter, ten UART
-bits per byte, and serialization against other scheduled messages.
+CK_A and CK_B. Arrival includes configured receiver latency, jitter, eight SPI
+clocks per byte, and serialization against other scheduled messages.
 
 PVT and covariance are joined by `iTOW`, then converted to a canonical
 launch-centered ENU fix. The ESKF only receives complete pairs. The model keeps

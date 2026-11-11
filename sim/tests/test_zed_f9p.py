@@ -43,12 +43,12 @@ def test_pvt_covariance_assembly_requires_matching_itow(twin_config):
     assert np.diag(fix.covariance) == pytest.approx([1.0, 4.0, 9.0, 0.01, 0.04, 0.09])
 
 
-def test_uart_frames_are_serialized_and_rates_are_exact(twin_config):
+def test_spi_frames_are_serialized_and_rates_are_exact(twin_config):
     events = ZedF9pModel(twin_config.zed_f9p, twin_config.launch, twin_config.simulation, 3).generate(analytic_truth(1.1, elevation_msl_m=twin_config.launch.elevation_msl_m))
-    uart = sorted((event for event in events if event.sensor_id == SensorId.ZED_F9P_UBX), key=lambda event: event.arrival_ticks)
-    for first, second in zip(uart, uart[1:]):
+    spi = sorted((event for event in events if event.sensor_id == SensorId.ZED_F9P_UBX), key=lambda event: event.arrival_ticks)
+    for first, second in zip(spi, spi[1:]):
         assert second.arrival_ticks > first.arrival_ticks
-    pvt = [event for event in uart if (lambda frame: frame.message_class == NAV_CLASS and frame.message_id == NAV_PVT_ID)(UbxFrame.from_bytes(event.payload))]
+    pvt = [event for event in spi if (lambda frame: frame.message_class == NAV_CLASS and frame.message_id == NAV_PVT_ID)(UbxFrame.from_bytes(event.payload))]
     assert np.all(np.diff([event.measurement_ticks for event in pvt]) == 20_000_000)
 
 

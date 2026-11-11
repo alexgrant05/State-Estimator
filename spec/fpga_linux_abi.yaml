@@ -1,0 +1,170 @@
+{
+  "name": "Cornell Rocketry State Estimator FPGA-to-Linux ABI",
+  "abi": {"major": 1, "minor": 0, "clock_hz": 100000000},
+  "address_regions": [
+    {"name": "control", "base": 2684354560, "size": 65536},
+    {"name": "r5_bram_ring", "base": 2684420096, "size": 65536},
+    {"name": "axi_dma", "base": 2684485632, "size": 65536},
+    {"name": "reserved", "base": 2684551168, "size": 65536}
+  ],
+  "constants": {
+    "core_magic": 1414743379,
+    "record_magic": 1263551827,
+    "block_magic": 1279411539,
+    "injection_magic": 1380533587,
+    "reset_key": 559174482,
+    "record_version": 1,
+    "record_header_bytes": 48,
+    "record_alignment": 8,
+    "max_payload_bytes": 3584,
+    "dma_block_bytes": 4096,
+    "dma_header_bytes": 64,
+    "dma_block_count": 256,
+    "r5_ring_bytes": 65536,
+    "injection_header_bytes": 16,
+    "dma_flush_ticks": 500000
+  },
+  "capabilities": {
+    "r5_ring": 0, "dma": 1, "replay": 2, "pps": 3,
+    "crc32c": 4, "configuration_lock": 5
+  },
+  "sensors": {
+    "system_health": 0, "legacy_adis16470": 1, "adxl375": 2,
+    "bmp581": 3, "legacy_gnss_solution": 4, "legacy_gnss_pps": 5,
+    "bno085_shtp": 6, "zed_f9p_ubx": 7, "zed_f9p_timepulse": 8
+  },
+  "status_flags": {
+    "valid": 0, "saturated": 1, "diagnostic_error": 2,
+    "checksum_error": 3, "sequence_discontinuity": 4, "packet_loss": 5,
+    "overrun": 6, "stale": 7, "fix_invalid": 8, "time_invalid": 9,
+    "out_of_order": 10, "bus_timeout": 11, "configuration_error": 12,
+    "event_fifo_overflow": 13, "packet_fifo_overflow": 14, "truncation": 15,
+    "sensor_reset": 16, "timestamp_uncertainty": 17, "test_injected": 18
+  },
+  "health_values": {
+    "uninitialized": 0, "configuring": 1, "healthy": 2,
+    "degraded": 3, "failed": 4, "recovering": 5, "disabled": 6
+  },
+  "control_bits": {
+    "capture_enable": 0, "r5_queue_enable": 1, "dma_mirror_enable": 2,
+    "test_mode": 3, "configuration_lock": 4
+  },
+  "irq_bits": {
+    "global_health": 0, "timepulse": 1, "r5_watermark": 2,
+    "dma_s2mm": 3, "dma_mm2s": 4
+  },
+  "error_bits": {
+    "access_violation": 0, "record_crc": 1, "r5_overflow": 2,
+    "linux_mirror_drop": 3, "event_fifo_overflow": 4,
+    "packet_fifo_overflow": 5, "dma_error": 6, "sensor_error": 7,
+    "fatal": 31
+  },
+  "registers": [
+    {"name":"CORE_MAGIC","offset":0,"access":"ro"},
+    {"name":"ABI_VERSION","offset":4,"access":"ro"},
+    {"name":"CORE_VERSION","offset":8,"access":"ro"},
+    {"name":"CAPABILITIES","offset":12,"access":"ro"},
+    {"name":"CLOCK_HZ","offset":16,"access":"ro"},
+    {"name":"SENSOR_PRESENT","offset":20,"access":"ro"},
+    {"name":"BUILD_ID0","offset":24,"access":"ro"},
+    {"name":"BUILD_ID1","offset":28,"access":"ro"},
+    {"name":"BUILD_ID2","offset":32,"access":"ro"},
+    {"name":"BUILD_ID3","offset":36,"access":"ro"},
+    {"name":"ABI_HASH_LO","offset":40,"access":"ro"},
+    {"name":"ABI_HASH_HI","offset":44,"access":"ro"},
+    {"name":"SESSION_ID","offset":48,"access":"rw"},
+    {"name":"RESET_GENERATION","offset":52,"access":"ro"},
+    {"name":"CONTROL","offset":56,"access":"rw"},
+    {"name":"STATUS","offset":60,"access":"ro"},
+    {"name":"ERROR_STATUS","offset":64,"access":"w1c"},
+    {"name":"ERROR_ENABLE","offset":68,"access":"rw"},
+    {"name":"IRQ_STATUS","offset":72,"access":"w1c"},
+    {"name":"IRQ_ENABLE","offset":76,"access":"rw"},
+    {"name":"IRQ_FORCE","offset":80,"access":"wo"},
+    {"name":"IRQ_COALESCE_BLOCKS","offset":84,"access":"rw"},
+    {"name":"IRQ_COALESCE_TICKS","offset":88,"access":"rw"},
+    {"name":"SCRATCH","offset":92,"access":"rw"},
+    {"name":"TIME_NOW_LO","offset":96,"access":"ro"},
+    {"name":"TIME_NOW_HI","offset":100,"access":"ro"},
+    {"name":"LAST_PPS_TICKS_LO","offset":104,"access":"ro"},
+    {"name":"LAST_PPS_TICKS_HI","offset":108,"access":"ro"},
+    {"name":"PPS_COUNT","offset":112,"access":"ro"},
+    {"name":"TIME_STATUS","offset":116,"access":"ro"},
+    {"name":"PACKET_COUNT","offset":128,"access":"ro"},
+    {"name":"R5_DROP_COUNT","offset":132,"access":"ro"},
+    {"name":"LINUX_DROP_COUNT","offset":136,"access":"ro"},
+    {"name":"DMA_BLOCK_COUNT","offset":140,"access":"ro"},
+    {"name":"BACKPRESSURE_COUNT","offset":144,"access":"ro"},
+    {"name":"HOST_OVERRUN_COUNT","offset":148,"access":"ro"},
+    {"name":"EVENT_OVERFLOW_COUNT","offset":152,"access":"ro"},
+    {"name":"PACKET_OVERFLOW_COUNT","offset":156,"access":"ro"},
+    {"name":"LAST_FATAL","offset":160,"access":"ro"},
+    {"name":"RESERVED_COUNTER","offset":164,"access":"ro"},
+    {"name":"RESET_KEY","offset":168,"access":"wo"},
+    {"name":"RESET_CONTROL","offset":172,"access":"wo"}
+  ],
+  "banks": {"dma":256,"r5_ring":512,"replay":768,"sensor_base":4096,"sensor_stride":256},
+  "dma_bank_registers": [
+    {"name":"STATUS","offset":0,"access":"ro"},
+    {"name":"BLOCK_SEQUENCE","offset":4,"access":"ro"},
+    {"name":"PL_DROP_COUNT","offset":8,"access":"ro"},
+    {"name":"BLOCK_COUNT","offset":12,"access":"ro"},
+    {"name":"CURRENT_VALID_BYTES","offset":16,"access":"ro"},
+    {"name":"FLUSH","offset":20,"access":"wo"},
+    {"name":"HOST_CONSUMER_BLOCK","offset":24,"access":"rw"},
+    {"name":"HOST_OVERRUN_COUNT","offset":28,"access":"ro"}
+  ],
+  "r5_bank_registers": [
+    {"name":"STATUS","offset":0,"access":"ro"},
+    {"name":"PRODUCER_OFFSET","offset":4,"access":"ro"},
+    {"name":"CONSUMER_OFFSET","offset":8,"access":"rw"},
+    {"name":"USED_BYTES","offset":12,"access":"ro"},
+    {"name":"WATERMARK_BYTES","offset":16,"access":"rw"},
+    {"name":"DROP_COUNT","offset":20,"access":"ro"},
+    {"name":"RESET","offset":24,"access":"wo"}
+  ],
+  "replay_bank_registers": [
+    {"name":"STATUS","offset":0,"access":"ro"},
+    {"name":"CONTROL","offset":4,"access":"rw"},
+    {"name":"ACCEPTED_COUNT","offset":8,"access":"ro"},
+    {"name":"REJECTED_COUNT","offset":12,"access":"ro"},
+    {"name":"LAST_ERROR","offset":16,"access":"ro"},
+    {"name":"RELEASED_COUNT","offset":20,"access":"ro"}
+  ],
+  "sensor_bank_registers": [
+    {"name":"IDENTITY","offset":0,"access":"ro"},
+    {"name":"CONTROL","offset":4,"access":"rw"},
+    {"name":"HEALTH","offset":8,"access":"ro"},
+    {"name":"ERROR_STATUS","offset":12,"access":"w1c"},
+    {"name":"ERROR_ENABLE","offset":16,"access":"rw"},
+    {"name":"EVENT_COUNT","offset":20,"access":"ro"},
+    {"name":"PACKET_COUNT","offset":24,"access":"ro"},
+    {"name":"DROP_COUNT","offset":28,"access":"ro"},
+    {"name":"LAST_MEASUREMENT_LO","offset":32,"access":"ro"},
+    {"name":"LAST_MEASUREMENT_HI","offset":36,"access":"ro"},
+    {"name":"LAST_ARRIVAL_LO","offset":40,"access":"ro"},
+    {"name":"LAST_ARRIVAL_HI","offset":44,"access":"ro"},
+    {"name":"LAST_SEQUENCE","offset":48,"access":"ro"},
+    {"name":"NATIVE_STATUS","offset":52,"access":"ro"},
+    {"name":"BUS_CLOCK_HZ","offset":56,"access":"ro"},
+    {"name":"REPORT_RATES","offset":60,"access":"ro"},
+    {"name":"TIMEOUT_TICKS","offset":64,"access":"rw"},
+    {"name":"CONFIG_HASH_LO","offset":68,"access":"ro"},
+    {"name":"CONFIG_HASH_HI","offset":72,"access":"ro"}
+  ],
+  "common_record_fields": [
+    ["magic","u32",0],["format_version","u8",4],["sensor_id","u8",5],
+    ["header_bytes","u16",6],["total_bytes","u16",8],["payload_bytes","u16",10],
+    ["sequence","u32",12],["measurement_ticks","u64",16],["arrival_ticks","u64",24],
+    ["status_flags","u32",32],["reserved","u32",36],["payload_crc32c","u32",40],
+    ["header_crc32c","u32",44]
+  ],
+  "dma_block_fields": [
+    ["magic","u32",0],["abi_major","u16",4],["header_bytes","u16",6],
+    ["sequence","u32",8],["flags","u32",12],["valid_bytes","u16",16],
+    ["packet_count","u16",18],["sensor_mask","u32",20],["pl_drops","u32",24],
+    ["reset_generation","u32",28],["session_id","u32",32],["reserved","u32",36],
+    ["first_measurement_ticks","u64",40],["last_measurement_ticks","u64",48],
+    ["payload_crc32c","u32",56],["header_crc32c","u32",60]
+  ]
+}

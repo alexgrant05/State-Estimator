@@ -21,6 +21,8 @@ from .transport import read_events, write_multi_replay
 from .truth import generate_andromeda_truth
 from .validation import calculate_metrics, load_validation, write_error_plot, write_report, write_states
 from .frames import rotation_matrix
+from .fpga_abi import build_dma_blocks, encode_common_record
+from .generated_abi import ABI_HASH_HEX, ABI_MAJOR, ABI_MINOR
 
 
 def _intervals_above_threshold(truth, config, threshold_g: float, per_axis: bool) -> list[dict[str, float]]:
@@ -87,6 +89,15 @@ def run_simulation(config_path: Path, seed: int | None, output: Path) -> dict[st
     event_path = output / "events.ndjson"
     replay_stats = write_multi_replay(events, event_path, output)
     round_trip_events = list(read_events(event_path))
+    common_records_path = output / "common_records.bin"
+    with common_records_path.open("wb") as stream:
+        for event in round_trip_events:
+            stream.write(encode_common_record(event))
+    dma_blocks_path = output / "dma_blocks.bin"
+    session_id = (actual_seed & 0xFFFFFFFF) or 1
+    with dma_blocks_path.open("wb") as stream:
+        for block in build_dma_blocks(round_trip_events, session_id):
+            stream.write(block)
     estimates = InertialEskf(config).run(round_trip_events)
     states_path = output / "states.csv"
     write_states(states_path, estimates)
@@ -99,9 +110,16 @@ def run_simulation(config_path: Path, seed: int | None, output: Path) -> dict[st
     write_error_plot(output / "errors.png", truth, estimates, config.simulation.clock_hz)
 
     manifest = {
-        "schema_version": 3,
+        "schema_version": 4,
         "seed": actual_seed,
         "source_revision": _source_revision(),
+        "fpga_abi": {
+            "major": ABI_MAJOR,
+            "minor": ABI_MINOR,
+            "schema_sha256": ABI_HASH_HEX,
+            "common_record_version": 1,
+            "dma_block_bytes": 4096,
+        },
         "configuration": {
             "path": str(config.source_path),
             "sha256": _sha256(config.source_path),
@@ -118,8 +136,8 @@ def run_simulation(config_path: Path, seed: int | None, output: Path) -> dict[st
             "zed_f9p": {
                 "firmware_profile": config.zed_f9p.firmware_profile,
                 "ubx_protocol": config.zed_f9p.protocol_version,
-                "uart": 1,
-                "baud": config.zed_f9p.uart_baud,
+                "transport": "dedicated SPI carrying raw UBX frames",
+                "spi_clock_hz": config.zed_f9p.spi_clock_hz,
                 "navigation_rate_hz": config.zed_f9p.output_rate_hz,
                 "timepulse_rate_hz": config.zed_f9p.pps_rate_hz,
             },
@@ -140,7 +158,7 @@ def run_simulation(config_path: Path, seed: int | None, output: Path) -> dict[st
         },
         "artifacts": {
             path.name: {"bytes": path.stat().st_size, "sha256": _sha256(path)}
-            for path in (event_path, states_path, validation_path, *replay_paths.values())
+            for path in (event_path, common_records_path, dma_blocks_path, states_path, validation_path, *replay_paths.values())
         },
         "passed": metrics["passed"],
     }

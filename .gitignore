@@ -11,6 +11,7 @@ sim/.pytest_cache/
 sim/.ruff_cache/
 sim/outputs/
 sim/build/
+linux/rust/target/
 **/__pycache__/
 *.py[cod]
 *.egg-info/

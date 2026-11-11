@@ -5,6 +5,8 @@ on:
     paths:
       - "src/rtl/**"
       - "src/tb/**"
+      - "spec/**"
+      - "tools/generate_fpga_abi.py"
       - "tools/install_rtl_tools.sh"
       - "tools/run_rtl_tests.py"
       - ".github/workflows/rtl.yml"
@@ -12,6 +14,8 @@ on:
     paths:
       - "src/rtl/**"
       - "src/tb/**"
+      - "spec/**"
+      - "tools/generate_fpga_abi.py"
       - "tools/install_rtl_tools.sh"
       - "tools/run_rtl_tests.py"
       - ".github/workflows/rtl.yml"
@@ -28,6 +32,8 @@ jobs:
           python-version: "3.12"
       - name: Install RTL tools
         run: bash tools/install_rtl_tools.sh
+      - name: Check generated ABI files
+        run: python tools/generate_fpga_abi.py --check
       - name: Lint RTL
         run: python tools/run_rtl_tests.py --lint-only
       - name: Run module tests

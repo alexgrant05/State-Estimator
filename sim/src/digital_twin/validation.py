@@ -164,7 +164,7 @@ def calculate_metrics(truth: list[TruthSample], events: list[MeasurementEvent], 
             if name == "bno085_shtp.bin":
                 count = sum(1 for _ in read_shtp_transactions(path))
                 expected = len(events_by_sensor[SensorId.BNO085_SHTP])
-            elif name == "zed_f9p_uart.bin":
+            elif name == "zed_f9p_spi.bin":
                 count = sum(1 for _ in read_ubx_transactions(path))
                 expected = len(events_by_sensor[SensorId.ZED_F9P_UBX])
             else:

@@ -109,7 +109,7 @@ class ZedF9pConfig:
     velocity_bias_rw_mps_sqrt_s: float
     outage_entry_probability: float
     outage_recovery_probability: float
-    uart_baud: int
+    spi_clock_hz: int
     dynamic_limit_g: float
     recovery_time_s: float
     protocol_version: str
@@ -224,7 +224,7 @@ def load_config(path: str | Path) -> TwinConfig:
         "velocity_bias_rw_mps_sqrt_s": 0.0,
         "outage_entry_probability": 0.0,
         "outage_recovery_probability": 1.0,
-        "uart_baud": 460800,
+        "spi_clock_hz": 5_000_000,
         "dynamic_limit_g": 4.0,
         "recovery_time_s": 1.0,
         "protocol_version": "27.50",
@@ -270,8 +270,8 @@ def load_config(path: str | Path) -> TwinConfig:
         raise ValueError("the reference ADXL375 codec supports rates through 800 Hz")
     if gnss.output_rate_hz > 7:
         raise ValueError("ZED-F9P all-constellation navigation rate must not exceed 7 Hz")
-    if gnss.uart_baud <= 0 or gnss.dynamic_limit_g <= 0.0 or gnss.recovery_time_s < 0.0:
-        raise ValueError("ZED-F9P baud and dynamic limit must be positive, and recovery time must be nonnegative")
+    if gnss.spi_clock_hz <= 0 or gnss.dynamic_limit_g <= 0.0 or gnss.recovery_time_s < 0.0:
+        raise ValueError("ZED-F9P SPI clock and dynamic limit must be positive, and recovery time must be nonnegative")
     if bmp.pressure_oversampling not in (1, 2, 4, 8, 16, 32, 64, 128):
         raise ValueError("BMP581 pressure oversampling is invalid")
     if bmp.temperature_oversampling not in (1, 2, 4, 8):

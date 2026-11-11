@@ -14,7 +14,7 @@ typed keys fail at startup.
   mounting.
 - `[bmp581]`: rate, oversampling, noise, bias, and transonic disturbance.
 - `[zed_f9p]`: 5 Hz navigation, 1 PPS, GPS epoch, ENU errors, latency, clock
-  behavior, lever arm, outages, 4 g limit, one second recovery, UART baud, and
+  behavior, lever arm, outages, 4 g limit, one second recovery, SPI clock, and
   protocol profile.
 - `[integration]`: rewind history, high-g hysteresis and hold, freshness,
   overlap NIS, GNSS NIS, and barometer gates.

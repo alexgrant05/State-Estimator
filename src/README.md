@@ -91,7 +91,7 @@ types, nonblocking sequential assignments, `always_ff` or `always_comb`, and
 4. Implement the BNO085 SHTP SPI controller and interrupt handling.
 5. Implement ADXL375 and BMP581 controllers plus auxiliary-bus scheduling.
 6. Define the common packet writer and processor-facing ring buffer.
-7. Add ZED-F9P PPS capture, UART receive, and UBX framing.
+7. Add ZED-F9P PPS capture, SPI receive, and UBX framing.
 
 New synthesizable files must be registered in `build.tcl`, and every standalone
 module must receive a focused Verilator test before integration.

@@ -17,6 +17,7 @@ Matrix15 = NDArray[np.float64]
 class SensorId(IntEnum):
     """Stable wire identifiers. Legacy identifiers must never be reused."""
 
+    SYSTEM_HEALTH = 0
     ADIS16470 = 1
     ADXL375 = 2
     BMP581 = 3
@@ -40,6 +41,14 @@ class StatusFlag(IntFlag):
     FIX_INVALID = 1 << 8
     TIME_INVALID = 1 << 9
     OUT_OF_ORDER = 1 << 10
+    BUS_TIMEOUT = 1 << 11
+    CONFIGURATION_ERROR = 1 << 12
+    EVENT_FIFO_OVERFLOW = 1 << 13
+    PACKET_FIFO_OVERFLOW = 1 << 14
+    TRUNCATION = 1 << 15
+    SENSOR_RESET = 1 << 16
+    TIMESTAMP_UNCERTAINTY = 1 << 17
+    TEST_INJECTED = 1 << 18
 
 
 @dataclass(frozen=True, slots=True)

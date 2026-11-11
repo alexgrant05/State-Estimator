@@ -88,7 +88,13 @@ def main() -> int:
     parser.add_argument("--trace", action="store_true", help="enable VCD tracing")
     arguments = parser.parse_args()
 
-    rtl_sources = sorted(RTL_ROOT.rglob("*.sv")) + sorted(RTL_ROOT.rglob("*.v"))
+    # Packages must be parsed before modules that import them.
+    packages = sorted((RTL_ROOT / "generated").rglob("*_pkg.sv"))
+    rtl_sources = packages + [
+        path
+        for path in sorted(RTL_ROOT.rglob("*.sv"))
+        if path not in packages and not path.name.endswith("_model.sv")
+    ] + sorted(RTL_ROOT.rglob("*.v"))
     if not rtl_sources:
         raise RuntimeError("no RTL sources were found")
     benches = discover(arguments.test) if not arguments.lint_only else []

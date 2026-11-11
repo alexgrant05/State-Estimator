@@ -19,7 +19,7 @@ This directory contains the installable Python simulation and reference
   enters ADXL mode at 85 percent of the BNO range and returns below 75 percent
   after a 25 ms hold and consistency check.
 - BMP581 on the auxiliary SPI bus: 50 Hz pressure and temperature aiding.
-- ZED-F9P on UART1 at 460800 baud: UBX NAV-PVT and NAV-COV at 5 Hz, UBX TIM-TP,
+- ZED-F9P on dedicated 5 MHz SPI: UBX NAV-PVT and NAV-COV at 5 Hz, UBX TIM-TP,
   and a separate 1 PPS TIMEPULSE edge.
 
 The BNO game rotation vector is diagnostic only. GNSS begins prelocked and runs
@@ -57,9 +57,10 @@ Each run contains:
 - `events.ndjson`, the complete logical event stream including TIMEPULSE edges
 - `bno085_shtp.bin`, exact SHTP transactions
 - `adxl375_acquisitions.bin` and `bmp581_acquisitions.bin`
-- `zed_f9p_uart.bin`, exact UBX frames
+- `zed_f9p_spi.bin`, exact UBX frames
+- `common_records.bin` and `dma_blocks.bin`, FPGA ABI v1 golden streams
 - `states.csv`, `validation.json`, `validation.md`, and `errors.png`
-- `manifest.json`, schema version 3 with configuration, protocol settings,
+- `manifest.json`, schema version 4 with configuration, protocol settings,
   calibration status, source revision, dependency versions, and hashes
 
 ## Documentation
@@ -81,8 +82,9 @@ Each run contains:
 ## Scope
 
 The current simulation covers pad alignment through apogee using float64. RTK,
-correction services, descent, fixed-point behavior, the final FPGA to R5F packet
-envelope, and flight acceptance limits remain out of scope.
+correction services, descent, fixed-point behavior, and flight acceptance limits
+remain out of scope. The FPGA ABI v1 envelope is defined and emitted here. Full
+sensor-controller and DMA integration remains hardware work.
 
 Legacy ADIS16470 decoding is available only in `digital_twin.legacy` for old
 replay inspection. It is not used by generation, estimation, or validation.

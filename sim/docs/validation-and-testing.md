@@ -10,7 +10,7 @@ cd sim
 The tests cover quaternion and ENU physics, BNO Q8/Q9/Q14 encoding, physical
 quantization and saturation, SHTP lengths and continuation, report rates,
 startup traffic, ADXL and BMP scales, UBX checksums and signed fields, PVT and
-covariance assembly, UART serialization, PPS pairing, deterministic replay,
+covariance assembly, SPI serialization, PPS pairing, deterministic replay,
 fault rejection, analytic ESKF trajectories, and covariance invariants.
 
 Golden fixtures cover current BNO startup traffic and a ZED TIM-TP frame.

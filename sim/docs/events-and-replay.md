@@ -23,11 +23,12 @@ only physical byte streams:
 | `bno085_shtp.bin` | Variable-length SHTP transactions |
 | `adxl375_acquisitions.bin` | Nine-byte modeled SPI acquisitions |
 | `bmp581_acquisitions.bin` | Nine-byte modeled SPI acquisitions |
-| `zed_f9p_uart.bin` | Variable-length UBX frames |
+| `zed_f9p_spi.bin` | Variable-length UBX frames carried over dedicated SPI |
 
 TIMEPULSE remains in NDJSON because it is an edge, not a byte stream. SHTP and
 UBX replay readers use their embedded lengths and reject truncation, bad sync,
-or invalid checksums. The future common FPGA to R5F envelope remains deferred.
+or invalid checksums. `common_records.bin` and `dma_blocks.bin` use FPGA ABI v1
+and are decoded by both the Python and Rust verification tools.
 
 Arrival timing includes each bus clock, complete transaction length, receiver
 latency where applicable, and serialization against other traffic on the same

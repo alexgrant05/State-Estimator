@@ -12,6 +12,9 @@ Kalman filter used to validate behavior before flight-hardware deployment.
 - `src/constraints/`: board and timing constraints.
 - `src/tb/`: RTL testbenches.
 - `sim/`: installable Python digital twin, estimator, replay tools, and tests.
+- `spec/fpga_linux_abi.yaml`: canonical FPGA, R5F, Linux, and replay ABI.
+- `linux/rust/`: Rust ABI, device, hardware-test, logger, and replay tools.
+- `linux/kernel/`: minimal DMA ownership shim for Linux.
 - `vivado/`: generated Vivado project, excluded from source control.
 
 ## Tentative hardware and software partition
@@ -20,7 +23,7 @@ Kalman filter used to validate behavior before flight-hardware deployment.
 | --- | --- | --- |
 | Programmable logic | Sensor buses, 100 MHz timestamps, event capture, buffering, and packet movement | Common timebase, asynchronous capture, FIFO, and arbitration modules implemented |
 | Cortex R5F | Deterministic sensor decoding, source selection, time synchronization, and 15-state ESKF | Python reference complete; embedded port not started |
-| Linux on Cortex A53 | Configuration, logging, telemetry, health reporting, and operator tools | Planned |
+| Linux on Cortex A53 | Configuration, logging, telemetry, health reporting, and operator tools | Rust ABI and verification workspace implemented; board integration pending |
 | Python digital twin | Truth, sensor protocols, deterministic replay, estimator reference, faults, and validation | Active and passing |
 
 ## Current reference pipeline
@@ -50,7 +53,12 @@ Implemented digital-twin behavior includes:
 - Deterministic fault injection, binary replay, artifact hashing, and 200-seed
   statistical validation.
 - Exact replay artifacts for BNO085 SHTP, ADXL375 and BMP581 SPI acquisitions,
-  and ZED-F9P UART. TIMEPULSE edges remain in the logical NDJSON stream.
+  and ZED-F9P SPI. TIMEPULSE edges remain in the logical NDJSON stream.
+
+FPGA-to-Linux ABI v1 defines the AXI-Lite registers, common records, R5F BRAM
+ring, Linux DMA blocks, replay items, interrupts, reset behavior, and flight
+configuration lock. RTL, Rust, Python, and Markdown definitions are generated
+from one schema.
 
 See [sim/README.md](sim/README.md) for sensor conventions, configuration,
 artifacts, detailed verification, and simulation scope.
@@ -94,7 +102,7 @@ python3 -m venv .venv
 
 On Windows, replace `.venv/bin/python` with `.venv\Scripts\python.exe`.
 
-The current suite has 49 passing tests. The seed-42 Andromeda pad-to-apogee run
+The current suite has 56 passing tests. The seed-42 Andromeda pad-to-apogee run
 passes all 17 validation gates with 74,735 measurement events, 13,794 published
 states, and 1,211 delayed rewinds. Current RMS errors are 0.286 m position,
 0.088 m/s velocity, and 0.821 degrees attitude. These are simulation reference
@@ -170,11 +178,12 @@ onboard LEDs are power or PS-managed status indicators and are not repurposed.
 - [x] Fault campaigns, 200-seed statistics, and Andromeda integration gates.
 - [ ] Replace generic and placeholder values with measured flight-hardware data.
 - [ ] Confirm the ZED-F9P module suffix and freeze its configuration profile.
-- [ ] Freeze the common FPGA-to-R5F packet envelope.
-- [ ] Implement sensor acquisition, timestamping, GNSS UART, and PPS capture RTL.
+- [x] Freeze FPGA-to-R5F and FPGA-to-Linux ABI v1 and generated codecs.
+- [ ] Implement sensor acquisition, timestamping, GNSS SPI, and PPS capture RTL.
 - [ ] Port the selector, time sync, ESKF, and delayed replay to Cortex R5F.
 - [ ] Require Python, RTL, and R5F replay parity.
 - [ ] Complete bench calibration, hardware-in-the-loop testing, and flight gates.
 
-Descent, fixed-point estimator behavior, and the final packet envelope remain
-deferred until the receiver and hardware interfaces are finalized.
+Descent and fixed-point estimator behavior remain deferred. The ABI is frozen,
+but the sensor controllers, DMA block packer, and Vivado interconnect still need
+hardware integration.

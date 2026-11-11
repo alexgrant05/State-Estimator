@@ -76,7 +76,7 @@ REPLAY_FILENAMES = {
     SensorId.BNO085_SHTP: "bno085_shtp.bin",
     SensorId.ADXL375: "adxl375_acquisitions.bin",
     SensorId.BMP581: "bmp581_acquisitions.bin",
-    SensorId.ZED_F9P_UBX: "zed_f9p_uart.bin",
+    SensorId.ZED_F9P_UBX: "zed_f9p_spi.bin",
 }
 
 

@@ -24,16 +24,14 @@ if {[llength $bd_files] != 1} {
 set bd_file [lindex $bd_files 0]
 
 open_bd_design $bd_file
-# The initial PS-only platform has no PL AXI slaves. Keep its master ports
-# disabled until an addressable peripheral is added to the block design.
+# ABI v1 exposes the control bank through M_AXI_HPM0_FPD.
 set ps_cell [get_bd_cells -quiet zynq_ultra_ps_e_0]
 if {[llength $ps_cell] != 1} {
   error "Expected exactly one zynq_ultra_ps_e_0 processing-system cell."
 }
-set_property -dict [list \
-  CONFIG.PSU__USE__M_AXI_GP0 {0} \
-  CONFIG.PSU__USE__M_AXI_GP1 {0} \
-] $ps_cell
+if {[get_property CONFIG.PSU__USE__M_AXI_GP0 $ps_cell] ne "1"} {
+  error "M_AXI_HPM0_FPD must remain enabled for the ABI v1 control bank."
+}
 validate_bd_design
 save_bd_design
 generate_target all $bd_file

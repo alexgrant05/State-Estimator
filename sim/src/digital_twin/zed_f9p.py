@@ -1,4 +1,4 @@
-"""ZED-F9P standalone GNSS model with UBX UART and TIMEPULSE output."""
+"""ZED-F9P standalone GNSS model with UBX SPI and TIMEPULSE output."""
 
 from __future__ import annotations
 
@@ -181,10 +181,10 @@ class ZedF9pModel:
         velocity_bias = np.zeros(3)
         valid_since: int | None = truth[0].ticks - int(round(self.config.recovery_time_s * self.simulation.clock_hz))
         outage = False
-        planned_uart: list[tuple[int, int, StatusFlag, UbxFrame, bool, int]] = []
+        planned_spi: list[tuple[int, int, StatusFlag, UbxFrame, bool, int]] = []
 
-        def schedule_uart(frame: UbxFrame, ticks: int, ready: int, flags: StatusFlag, corrupt: bool = False) -> None:
-            planned_uart.append((ready, ticks, flags, frame, corrupt, len(planned_uart)))
+        def schedule_spi(frame: UbxFrame, ticks: int, ready: int, flags: StatusFlag, corrupt: bool = False) -> None:
+            planned_spi.append((ready, ticks, flags, frame, corrupt, len(planned_spi)))
 
         for sequence, ticks in enumerate(range(truth[0].ticks, truth[-1].ticks + 1, nav_interval)):
             sample = interpolate_truth(truth, ticks)
@@ -217,9 +217,9 @@ class ZedF9pModel:
             ready = ticks + int(round(latency * self.simulation.clock_hz))
             flags = StatusFlag.VALID if valid else StatusFlag.FIX_INVALID
             if sequence not in faults.pvt_loss:
-                schedule_uart(pvt, ticks, ready, flags, sequence in faults.corrupt_checksum)
+                schedule_spi(pvt, ticks, ready, flags, sequence in faults.corrupt_checksum)
             if sequence not in faults.cov_loss:
-                schedule_uart(cov, ticks, ready, flags)
+                schedule_spi(cov, ticks, ready, flags)
 
         pps_interval = self.simulation.clock_hz // self.config.pps_rate_hz
         for sequence, nominal_ticks in enumerate(range(truth[0].ticks, truth[-1].ticks + 1, pps_interval)):
@@ -230,15 +230,15 @@ class ZedF9pModel:
             pulse = TimePulse(week, tow_ms, self.config.pps_jitter_ns, True)
             if sequence not in faults.pps_loss:
                 events.append(MeasurementEvent(1, SensorId.ZED_F9P_TIMEPULSE, sequence, edge, edge, StatusFlag.VALID, encode_timepulse(pulse)))
-                schedule_uart(encode_tim_tp(tow_ms, week), nominal_ticks, nominal_ticks, StatusFlag.VALID)
-        uart_free = 0
-        for event_sequence, (ready, ticks, flags, frame, corrupt, _) in enumerate(sorted(planned_uart, key=lambda item: (item[0], item[5]))):
+                schedule_spi(encode_tim_tp(tow_ms, week), nominal_ticks, nominal_ticks, StatusFlag.VALID)
+        spi_free = 0
+        for event_sequence, (ready, ticks, flags, frame, corrupt, _) in enumerate(sorted(planned_spi, key=lambda item: (item[0], item[5]))):
             data = frame.payload_bytes()
             if corrupt:
                 data = data[:-1] + bytes((data[-1] ^ 0x01,))
                 flags |= StatusFlag.CHECKSUM_ERROR
-            transfer = int(np.ceil(len(data) * 10 / self.config.uart_baud * self.simulation.clock_hz))
-            arrival = max(ready, uart_free) + transfer
-            uart_free = arrival
+            transfer = int(np.ceil(len(data) * 8 / self.config.spi_clock_hz * self.simulation.clock_hz))
+            arrival = max(ready, spi_free) + transfer
+            spi_free = arrival
             events.append(MeasurementEvent(1, SensorId.ZED_F9P_UBX, event_sequence, ticks, arrival, flags, data))
         return events
