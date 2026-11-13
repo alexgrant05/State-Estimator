@@ -20,6 +20,7 @@ linux/rust/target/
 # PetaLinux is built in the WSL ext4 filesystem. Ignore accidental local output.
 petalinux-build/
 *.xsa
+outputs/
 
 # Keep these
 !build.tcl

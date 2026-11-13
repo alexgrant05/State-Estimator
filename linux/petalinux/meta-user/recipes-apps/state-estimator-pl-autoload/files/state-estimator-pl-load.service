@@ -1,0 +1,12 @@
+[Unit]
+Description=Load and verify state-estimator programmable logic
+After=local-fs.target systemd-modules-load.service
+Before=multi-user.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/sbin/state-estimator-pl-load
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target

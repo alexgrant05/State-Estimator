@@ -441,10 +441,12 @@ proc cr_bd_state_est_bd { parentCell } {
   set irq_zero3 [ create_bd_cell -type ip -vlnv xilinx.com:ip:xlconstant:1.1 irq_zero3 ]
   set_property -dict [list CONFIG.CONST_WIDTH {3} CONFIG.CONST_VAL {0}] $irq_zero3
   set pl_reset_sync [ create_bd_cell -type ip -vlnv xilinx.com:ip:proc_sys_reset:5.0 pl_reset_sync ]
-  set_property -dict [list CONFIG.C_EXT_RESET_HIGH {0}] $pl_reset_sync
 
-  # Keep the standalone bring-up counter out of reset. The PS-to-PL reset may
-  # remain asserted until boot software explicitly releases it.
+  # Keep the PL datapath independent of the optional PS-to-PL reset output.
+  # The generated proc_sys_reset interface declares ext_reset_in ACTIVE_LOW.
+  # On the KR260 boot flow, pl_resetn0 is not guaranteed to be released when
+  # Linux loads the PL, so hold this optional external reset inactive-high.
+  # proc_sys_reset still supplies the configuration-time reset sequence.
   set bringup_reset_n [ create_bd_cell -type ip -vlnv xilinx.com:ip:xlconstant:1.1 bringup_reset_n ]
   set_property -dict [list CONFIG.CONST_VAL {1}] $bringup_reset_n
 
@@ -920,8 +922,11 @@ Port;FD4A0000;FD4AFFFF;1|FPD;DPDMA;FD4C0000;FD4CFFFF;1|FPD;DDR_XMPU5_CFG;FD05000
   connect_bd_net [get_bd_pins zynq_ultra_ps_e_0/pl_clk0] [get_bd_pins axi_control_smc/aclk] [get_bd_pins state_estimator_registers_0/aclk]
   connect_bd_net [get_bd_pins zynq_ultra_ps_e_0/pl_clk0] [get_bd_pins zynq_ultra_ps_e_0/maxihpm0_fpd_aclk]
   connect_bd_net [get_bd_pins zynq_ultra_ps_e_0/pl_clk0] [get_bd_pins pl_reset_sync/slowest_sync_clk]
-  connect_bd_net [get_bd_pins zynq_ultra_ps_e_0/pl_resetn0] [get_bd_pins pl_reset_sync/ext_reset_in]
-  connect_bd_net [get_bd_pins abi_zero1/dout] [get_bd_pins pl_reset_sync/aux_reset_in] [get_bd_pins pl_reset_sync/mb_debug_sys_rst]
+  # ext_reset_in and aux_reset_in are both active-low in the generated reset
+  # controller. Hold both inactive-high. mb_debug_sys_rst is active-high, so
+  # hold it inactive-low.
+  connect_bd_net [get_bd_pins bringup_reset_n/dout] [get_bd_pins pl_reset_sync/ext_reset_in] [get_bd_pins pl_reset_sync/aux_reset_in]
+  connect_bd_net [get_bd_pins abi_zero1/dout] [get_bd_pins pl_reset_sync/mb_debug_sys_rst]
   connect_bd_net [get_bd_pins bringup_reset_n/dout] [get_bd_pins pl_reset_sync/dcm_locked]
   connect_bd_net [get_bd_pins pl_reset_sync/peripheral_aresetn] [get_bd_pins axi_control_smc/aresetn] [get_bd_pins state_estimator_registers_0/aresetn]
   connect_bd_net [get_bd_pins abi_zero1/dout] [get_bd_pins state_estimator_registers_0/pps_pulse]

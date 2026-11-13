@@ -1,0 +1,4 @@
+# U-Boot on the KR260 comes from QSPI platform firmware. PL configuration is
+# intentionally deferred to Linux's ZynqMP FPGA Manager, which can perform the
+# required power and isolation calls through the platform firmware API.
+uenvcmd=echo "State-estimator PL will load through Linux FPGA Manager"
