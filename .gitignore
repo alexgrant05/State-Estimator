@@ -11,13 +11,23 @@ sim/.pytest_cache/
 sim/.ruff_cache/
 sim/outputs/
 sim/build/
+linux/rust/target/
 **/__pycache__/
 *.py[cod]
 *.egg-info/
 .rtl_build/
 boards/*/build/
 
+# PetaLinux is built in the WSL ext4 filesystem. Ignore accidental local output.
+petalinux-build/
+*.xsa
+outputs/
+
 # Keep these
 !build.tcl
 !.gitignore
 !src/
+
+# local FPGA build output
+/build/
+*.vvp

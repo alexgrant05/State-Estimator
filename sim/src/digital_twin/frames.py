@@ -49,6 +49,30 @@ def rotation_matrix(q: ArrayLike) -> NDArray[np.float64]:
     )
 
 
+def quaternion_from_rotation_matrix(matrix: ArrayLike) -> NDArray[np.float64]:
+    """Convert a proper rotation matrix to a scalar-first quaternion."""
+
+    value = np.asarray(matrix, dtype=np.float64)
+    if value.shape != (3, 3):
+        raise ValueError("rotation matrix must be 3x3")
+    trace = float(np.trace(value))
+    if trace > 0.0:
+        scale = np.sqrt(trace + 1.0) * 2.0
+        result = np.array([0.25 * scale, (value[2, 1] - value[1, 2]) / scale, (value[0, 2] - value[2, 0]) / scale, (value[1, 0] - value[0, 1]) / scale])
+    else:
+        index = int(np.argmax(np.diag(value)))
+        if index == 0:
+            scale = np.sqrt(1.0 + value[0, 0] - value[1, 1] - value[2, 2]) * 2.0
+            result = np.array([(value[2, 1] - value[1, 2]) / scale, 0.25 * scale, (value[0, 1] + value[1, 0]) / scale, (value[0, 2] + value[2, 0]) / scale])
+        elif index == 1:
+            scale = np.sqrt(1.0 + value[1, 1] - value[0, 0] - value[2, 2]) * 2.0
+            result = np.array([(value[0, 2] - value[2, 0]) / scale, (value[0, 1] + value[1, 0]) / scale, 0.25 * scale, (value[1, 2] + value[2, 1]) / scale])
+        else:
+            scale = np.sqrt(1.0 + value[2, 2] - value[0, 0] - value[1, 1]) * 2.0
+            result = np.array([(value[1, 0] - value[0, 1]) / scale, (value[0, 2] + value[2, 0]) / scale, (value[1, 2] + value[2, 1]) / scale, 0.25 * scale])
+    return normalize_quaternion(result)
+
+
 def exponential_quaternion(rotation_vector: ArrayLike) -> NDArray[np.float64]:
     phi = np.asarray(rotation_vector, dtype=np.float64)
     angle = np.linalg.norm(phi)

@@ -115,7 +115,7 @@ if { $validate_required } {
 }
 
 # Create project
-create_project ${_xil_proj_name_} ./vivado/${_xil_proj_name_} -part xck26-sfvc784-2LV-c
+create_project ${_xil_proj_name_} ./vivado/${_xil_proj_name_} -part xck26-sfvc784-2LV-c -force
 
 # Set the directory path for the new project
 set proj_dir [get_property directory [current_project]]
@@ -203,7 +203,7 @@ if {[string equal [get_filesets -quiet sources_1] ""]} {
 }
 
 # Add repository-managed RTL sources.
-set rtl_source_files [glob -nocomplain "$origin_dir/src/rtl/common/*.sv"]
+set rtl_source_files [glob -nocomplain -types f "$origin_dir/src/rtl/*/*.sv"]
 if {[llength $rtl_source_files] > 0} {
   add_files -fileset sources_1 -norecurse $rtl_source_files
 }
@@ -251,7 +251,11 @@ if {[string equal [get_filesets -quiet constrs_1] ""]} {
 # Set 'constrs_1' fileset object
 set obj [get_filesets constrs_1]
 
-# Empty (no sources present)
+# Add repository-managed board and timing constraints.
+set constraint_files [glob -nocomplain -types f "$origin_dir/src/constraints/*.xdc"]
+if {[llength $constraint_files] > 0} {
+  add_files -fileset constrs_1 -norecurse $constraint_files
+}
 
 # Set 'constrs_1' fileset properties
 set obj [get_filesets constrs_1]
@@ -366,8 +370,9 @@ proc cr_bd_state_est_bd { parentCell } {
   ##################################################################
   set bCheckIPs 1
   if { $bCheckIPs == 1 } {
-     set list_check_ips "\ 
+  set list_check_ips "\ 
   xilinx.com:ip:zynq_ultra_ps_e:3.5\
+  xilinx.com:ip:xlconstant:1.1\
   "
 
    set list_ips_missing ""
@@ -422,6 +427,34 @@ proc cr_bd_state_est_bd { parentCell } {
   # Create interface ports
 
   # Create ports
+  set led_0 [ create_bd_port -dir O led_0 ]
+
+  # Create instance: led_blinker_0
+  set led_blinker_0 [ create_bd_cell -type module -reference led_blinker led_blinker_0 ]
+
+  # ABI v1 AXI-Lite control and status register bank.
+  set state_estimator_registers_0 [ create_bd_cell -type module -reference state_estimator_registers state_estimator_registers_0 ]
+  set axi_control_smc [ create_bd_cell -type ip -vlnv xilinx.com:ip:smartconnect:1.0 axi_control_smc ]
+  set_property -dict [list CONFIG.NUM_SI {1} CONFIG.NUM_MI {1}] $axi_control_smc
+  set abi_zero32 [ create_bd_cell -type ip -vlnv xilinx.com:ip:xlconstant:1.1 abi_zero32 ]
+  set_property -dict [list CONFIG.CONST_WIDTH {32} CONFIG.CONST_VAL {0}] $abi_zero32
+  set abi_zero5 [ create_bd_cell -type ip -vlnv xilinx.com:ip:xlconstant:1.1 abi_zero5 ]
+  set_property -dict [list CONFIG.CONST_WIDTH {5} CONFIG.CONST_VAL {0}] $abi_zero5
+  set abi_zero1 [ create_bd_cell -type ip -vlnv xilinx.com:ip:xlconstant:1.1 abi_zero1 ]
+  set_property -dict [list CONFIG.CONST_WIDTH {1} CONFIG.CONST_VAL {0}] $abi_zero1
+  set irq_concat [ create_bd_cell -type ip -vlnv xilinx.com:ip:xlconcat:2.1 irq_concat ]
+  set_property -dict [list CONFIG.NUM_PORTS {2} CONFIG.IN0_WIDTH {5} CONFIG.IN1_WIDTH {3}] $irq_concat
+  set irq_zero3 [ create_bd_cell -type ip -vlnv xilinx.com:ip:xlconstant:1.1 irq_zero3 ]
+  set_property -dict [list CONFIG.CONST_WIDTH {3} CONFIG.CONST_VAL {0}] $irq_zero3
+  set pl_reset_sync [ create_bd_cell -type ip -vlnv xilinx.com:ip:proc_sys_reset:5.0 pl_reset_sync ]
+
+  # Keep the PL datapath independent of the optional PS-to-PL reset output.
+  # The generated proc_sys_reset interface declares ext_reset_in ACTIVE_LOW.
+  # On the KR260 boot flow, pl_resetn0 is not guaranteed to be released when
+  # Linux loads the PL, so hold this optional external reset inactive-high.
+  # proc_sys_reset still supplies the configuration-time reset sequence.
+  set bringup_reset_n [ create_bd_cell -type ip -vlnv xilinx.com:ip:xlconstant:1.1 bringup_reset_n ]
+  set_property -dict [list CONFIG.CONST_VAL {1}] $bringup_reset_n
 
   # Create instance: zynq_ultra_ps_e_0, and set properties
   set zynq_ultra_ps_e_0 [ create_bd_cell -type ip -vlnv xilinx.com:ip:zynq_ultra_ps_e:3.5 zynq_ultra_ps_e_0 ]
@@ -879,15 +912,46 @@ Port;FD4A0000;FD4AFFFF;1|FPD;DPDMA;FD4C0000;FD4CFFFF;1|FPD;DDR_XMPU5_CFG;FD05000
     CONFIG.PSU__USB__RESET__MODE {Separate MIO Pin} \
     CONFIG.PSU__USB__RESET__POLARITY {Active Low} \
     CONFIG.PSU__USE__IRQ0 {1} \
+    CONFIG.PSU__NUM_F2P_INTR_INPUTS {8} \
     CONFIG.PSU__USE__M_AXI_GP0 {1} \
-    CONFIG.PSU__USE__M_AXI_GP1 {1} \
+    CONFIG.PSU__USE__M_AXI_GP1 {0} \
     CONFIG.PSU__USE__M_AXI_GP2 {0} \
   ] $zynq_ultra_ps_e_0
 
 
   # Create port connections
+  connect_bd_net [get_bd_ports led_0] [get_bd_pins led_blinker_0/led]
+  connect_bd_net [get_bd_pins led_blinker_0/clk] [get_bd_pins zynq_ultra_ps_e_0/pl_clk0]
+  connect_bd_net [get_bd_pins bringup_reset_n/dout] [get_bd_pins led_blinker_0/rst_n]
+  connect_bd_intf_net [get_bd_intf_pins zynq_ultra_ps_e_0/M_AXI_HPM0_FPD] [get_bd_intf_pins axi_control_smc/S00_AXI]
+  connect_bd_intf_net [get_bd_intf_pins axi_control_smc/M00_AXI] [get_bd_intf_pins state_estimator_registers_0/S_AXI]
+  connect_bd_net [get_bd_pins zynq_ultra_ps_e_0/pl_clk0] [get_bd_pins axi_control_smc/aclk] [get_bd_pins state_estimator_registers_0/aclk]
+  connect_bd_net [get_bd_pins zynq_ultra_ps_e_0/pl_clk0] [get_bd_pins zynq_ultra_ps_e_0/maxihpm0_fpd_aclk]
+  connect_bd_net [get_bd_pins zynq_ultra_ps_e_0/pl_clk0] [get_bd_pins pl_reset_sync/slowest_sync_clk]
+  # ext_reset_in and aux_reset_in are both active-low in the generated reset
+  # controller. Hold both inactive-high. mb_debug_sys_rst is active-high, so
+  # hold it inactive-low.
+  connect_bd_net [get_bd_pins bringup_reset_n/dout] [get_bd_pins pl_reset_sync/ext_reset_in] [get_bd_pins pl_reset_sync/aux_reset_in]
+  connect_bd_net [get_bd_pins abi_zero1/dout] [get_bd_pins pl_reset_sync/mb_debug_sys_rst]
+  connect_bd_net [get_bd_pins bringup_reset_n/dout] [get_bd_pins pl_reset_sync/dcm_locked]
+  connect_bd_net [get_bd_pins pl_reset_sync/peripheral_aresetn] [get_bd_pins axi_control_smc/aresetn] [get_bd_pins state_estimator_registers_0/aresetn]
+  connect_bd_net [get_bd_pins abi_zero1/dout] [get_bd_pins state_estimator_registers_0/pps_pulse]
+  connect_bd_net [get_bd_pins abi_zero5/dout] [get_bd_pins state_estimator_registers_0/irq_set]
+  foreach pin_name {error_set packet_count r5_drop_count linux_drop_count dma_block_count backpressure_count host_overrun_count event_overflow_count packet_overflow_count last_fatal} {
+    connect_bd_net [get_bd_pins abi_zero32/dout] [get_bd_pins state_estimator_registers_0/$pin_name]
+  }
+  connect_bd_net [get_bd_pins state_estimator_registers_0/irq] [get_bd_pins irq_concat/In0]
+  connect_bd_net [get_bd_pins irq_zero3/dout] [get_bd_pins irq_concat/In1]
+  connect_bd_net [get_bd_pins irq_concat/dout] [get_bd_pins zynq_ultra_ps_e_0/pl_ps_irq0]
 
   # Create address segments
+  assign_bd_address
+  set se_addr_seg [lindex [get_bd_addr_segs -hier -filter {NAME =~ "*state_estimator_registers_0*"}] 0]
+  if {$se_addr_seg eq ""} {
+    error "Vivado did not infer an address segment for state_estimator_registers_0"
+  }
+  set_property offset 0xA0000000 $se_addr_seg
+  set_property range 0x00010000 $se_addr_seg
 
   # Perform GUI Layout
   regenerate_bd_layout -layout_string {
@@ -905,8 +969,9 @@ pagesize -pg 1 -db -bbox -sgen 0 0 10 10
   # Restore current instance
   current_bd_instance $oldCurInst
 
+  validate_bd_design
   save_bd_design
-common::send_gid_msg -ssname BD::TCL -id 2050 -severity "WARNING" "This Tcl script was generated from a block design that has not been validated. It is possible that design <$design_name> may result in errors during validation."
+common::send_gid_msg -ssname BD::TCL -id 2050 -severity "INFO" "Validated and saved block design <$design_name>."
 
   close_bd_design $design_name 
 }

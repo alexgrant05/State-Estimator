@@ -5,18 +5,23 @@ from __future__ import annotations
 from bisect import bisect_right
 from collections import Counter
 from dataclasses import dataclass
+import struct
 
 import numpy as np
 
-from .adis16470 import DecodedAdisMeasurement, decode_event as decode_adis
 from .adxl375 import DecodedAdxlMeasurement, decode_event as decode_adxl
+from .bno085 import (
+    ACCELEROMETER_REPORT,
+    GAME_ROTATION_VECTOR_REPORT,
+    UNCALIBRATED_GYROSCOPE_REPORT,
+    BnoShtpPacket,
+    decode_event as decode_bno,
+)
 from .bmp581 import DecodedBmpMeasurement, decode_event as decode_bmp
 from .config import TwinConfig
 from .frames import exponential_quaternion, normalize_quaternion, quaternion_from_two_vectors, quaternion_multiply, rotation_matrix, skew
-from .geodesy import ecef_from_enu_rotation, geodetic_to_ecef
-from .gnss import GPS_WEEK_NS
-from .transport import AdisBurst, GnssPps, GnssSolution
-from .types import MeasurementEvent, SensorId, StateEstimate, StatusFlag
+from .types import CanonicalGnssFix, MeasurementEvent, SensorId, StateEstimate, StatusFlag
+from .zed_f9p import GPS_WEEK_MS, TIM_CLASS, TIM_TP_ID, UbxFrame, ZedMessageAssembler, decode_timepulse
 
 
 @dataclass(slots=True)
@@ -77,12 +82,13 @@ class _TimeSync:
 
 
 class InertialEskf:
-    """ADIS propagation with high-g acceleration selection and BMP/GNSS aiding."""
+    """Asynchronous BNO propagation with ADXL high-g selection and delayed aiding."""
 
     def __init__(self, config: TwinConfig):
         self.config = config
         self.health: Counter[str] = Counter()
-        self.pad_measurements: list[tuple[int, DecodedAdisMeasurement]] = []
+        self.pad_accelerations: list[tuple[int, np.ndarray]] = []
+        self.pad_gyros: list[tuple[int, np.ndarray]] = []
         self.pad_adxl: list[DecodedAdxlMeasurement] = []
         self.pad_pressures: list[float] = []
         self.initialized = False
@@ -96,9 +102,10 @@ class InertialEskf:
         self.covariance = np.zeros((15, 15))
         self.last_state_ticks: int | None = None
         self.expected_sequences: dict[SensorId, int] = {}
-        self.expected_counter: int | None = None
+        self.expected_bno_channel_sequence: int | None = None
         self.liftoff_ticks = int(round(config.simulation.pad_duration_s * config.simulation.clock_hz))
         self.latest_adxl: tuple[int, DecodedAdxlMeasurement] | None = None
+        self.latest_bno_accel: tuple[int, np.ndarray, bool] | None = None
         self.high_g_active = False
         self.high_g_below_since: int | None = None
         self.barometer_reference_pa: float | None = None
@@ -108,8 +115,8 @@ class InertialEskf:
         self.snapshots: list[_Snapshot] = []
         self.time_sync = _TimeSync(config.simulation.clock_hz)
         self.flight_phase = "PAD"
-        self.origin_ecef = geodetic_to_ecef(config.launch.latitude_deg, config.launch.longitude_deg, config.launch.elevation_msl_m)
-        self.ecef_from_enu = ecef_from_enu_rotation(config.launch.latitude_deg, config.launch.longitude_deg)
+        self.zed_assembler = ZedMessageAssembler(config.launch)
+        self.pending_timepulses: dict[tuple[int, int], tuple[int, object]] = {}
 
     def _track_sequence(self, event: MeasurementEvent) -> None:
         expected = self.expected_sequences.get(event.sensor_id)
@@ -120,34 +127,11 @@ class InertialEskf:
             self.health["packets_lost"] += gap
         self.expected_sequences[event.sensor_id] = (event.sequence_number + 1) & 0xFFFFFFFF
 
-    def _decode_adis(self, event: MeasurementEvent) -> DecodedAdisMeasurement | None:
-        try:
-            burst = AdisBurst.from_payload_bytes(event.payload)
-        except ValueError:
-            self.health["malformed_packets"] += 1
-            return None
-        if not burst.valid_checksum():
-            self.health["checksum_failures"] += 1
-            return None
-        if burst.diag_stat:
-            self.health["diagnostic_failures"] += 1
-            return None
-        if self.expected_counter is not None and burst.data_counter != self.expected_counter:
-            self.health["counter_discontinuities"] += 1
-        self.expected_counter = (burst.data_counter + 1) & 0xFFFF
-        if event.status_flags & StatusFlag.SATURATED:
-            self.health["saturated_measurements"] += 1
-        try:
-            return decode_adis(event, self.config.adis16470, self.config.simulation)
-        except ValueError:
-            self.health["decode_failures"] += 1
-            return None
-
     def _initialize(self) -> None:
-        if not self.pad_measurements:
+        if not self.pad_accelerations or not self.pad_gyros:
             raise RuntimeError("no valid pad measurements available for initialization")
-        accel_mean = np.mean([measurement.accel_body_mps2 for _, measurement in self.pad_measurements], axis=0)
-        gyro_mean = np.mean([measurement.gyro_body_rps for _, measurement in self.pad_measurements], axis=0)
+        accel_mean = np.mean([measurement for _, measurement in self.pad_accelerations], axis=0)
+        gyro_mean = np.mean([measurement for _, measurement in self.pad_gyros], axis=0)
         from .frames import rocketpy_initial_quaternion
 
         rail_q = rocketpy_initial_quaternion(self.config.launch.rail_inclination_deg, self.config.launch.rail_heading_deg)
@@ -172,7 +156,7 @@ class InertialEskf:
             np.full(3, est.initial_gyro_bias_sigma_rps),
         ]
         self.covariance = np.diag(diagonal_sigmas**2)
-        self.last_state_ticks = self.pad_measurements[-1][0]
+        self.last_state_ticks = self.pad_gyros[-1][0]
         self.initialized = True
         self.health["initializations"] += 1
         self.snapshots = [self._snapshot()]
@@ -200,9 +184,9 @@ class InertialEskf:
         self.covariance = snapshot.covariance.copy()
         self.angular_rate_body_rps = snapshot.angular_rate_body_rps.copy()
 
-    def _select_acceleration(self, event: MeasurementEvent, adis: DecodedAdisMeasurement) -> tuple[np.ndarray, bool]:
-        threshold_enter = self.config.integration.high_g_enter_fraction * 40.0 * self.config.simulation.gravity_mps2
-        threshold_exit = self.config.integration.high_g_exit_fraction * 40.0 * self.config.simulation.gravity_mps2
+    def _select_acceleration(self, event: MeasurementEvent, bno_accel: np.ndarray, saturated: bool) -> tuple[np.ndarray, bool]:
+        threshold_enter = self.config.integration.high_g_enter_fraction * 8.0 * self.config.simulation.gravity_mps2
+        threshold_exit = self.config.integration.high_g_exit_fraction * 8.0 * self.config.simulation.gravity_mps2
         latest = self.latest_adxl
         adxl_fresh = False
         adxl_accel = None
@@ -213,14 +197,14 @@ class InertialEskf:
             adxl_accel = latest[1].accel_body_mps2 - self.adxl_pad_bias
         overlap_ok = False
         if adxl_fresh and adxl_accel is not None:
-            adis_corrected = adis.accel_body_mps2 - self.accel_bias
+            bno_corrected = bno_accel - self.accel_bias
             adxl_sigma = self.config.adxl375.noise_density_mg_sqrt_hz * 1e-3 * self.config.simulation.gravity_mps2 * np.sqrt(self.config.adxl375.output_rate_hz / 2.0)
-            variance = max(adxl_sigma**2, 1e-12)
-            overlap_ok = float((adxl_accel - adis_corrected) @ (adxl_accel - adis_corrected) / variance) <= self.config.integration.overlap_nis_gate
+            variance = max(adxl_sigma**2, (0.1 * self.config.simulation.gravity_mps2) ** 2)
+            overlap_ok = float((adxl_accel - bno_corrected) @ (adxl_accel - bno_corrected) / variance) <= self.config.integration.overlap_nis_gate
             if not overlap_ok:
                 self.health["high_g_overlap_rejections"] += 1
 
-        high = np.max(np.abs(adis.accel_body_mps2)) >= threshold_enter or adis.saturated
+        high = np.max(np.abs(bno_accel)) >= threshold_enter or saturated
         if not self.high_g_active and high:
             if adxl_fresh:
                 self.high_g_active = True
@@ -229,19 +213,19 @@ class InertialEskf:
             else:
                 self.health["high_g_unavailable"] += 1
         elif self.high_g_active:
-            if np.max(np.abs(adis.accel_body_mps2)) < threshold_exit and overlap_ok:
+            if np.max(np.abs(bno_accel)) < threshold_exit and overlap_ok:
                 if self.high_g_below_since is None:
                     self.high_g_below_since = event.measurement_ticks
                 hold_ticks = int(round(self.config.integration.high_g_exit_hold_s * self.config.simulation.clock_hz))
                 if event.measurement_ticks - self.high_g_below_since >= hold_ticks:
                     self.high_g_active = False
-                    self.health["high_g_switches_to_adis"] += 1
+                    self.health["high_g_switches_to_bno"] += 1
             else:
                 self.high_g_below_since = None
         if self.high_g_active and adxl_fresh and adxl_accel is not None:
             self.health["high_g_samples"] += 1
             return adxl_accel, True
-        return adis.accel_body_mps2, False
+        return bno_accel, False
 
     def _propagate(self, value: _ImuInput, count: bool = True) -> bool:
         assert self.last_state_ticks is not None
@@ -270,8 +254,8 @@ class InertialEskf:
         if value.use_adxl:
             accel_density = self.config.adxl375.noise_density_mg_sqrt_hz * 1e-3 * self.config.simulation.gravity_mps2
         else:
-            accel_density = self.config.adis16470.accel_noise_rms_mg * 1e-3 * self.config.simulation.gravity_mps2 / np.sqrt(600.0)
-        gyro_density = np.radians(self.config.adis16470.gyro_noise_rms_dps) / np.sqrt(550.0)
+            accel_density = self.config.bno085.accel_noise_density_mg_sqrt_hz * 1e-3 * self.config.simulation.gravity_mps2
+        gyro_density = np.radians(self.config.bno085.gyro_noise_density_dps_sqrt_hz)
         process = np.zeros((15, 15))
         process[3:6, 3:6] = np.eye(3) * accel_density**2 * dt
         process[6:9, 6:9] = np.eye(3) * gyro_density**2 * dt
@@ -343,12 +327,12 @@ class InertialEskf:
             derivative = max(measurement.pressure_pa * self.config.simulation.gravity_mps2 / (287.05287 * (measurement.temperature_c + 273.15)), 1e-6)
             sigma_altitude = self.config.bmp581.pressure_noise_pa / derivative
             return self._inject(innovation, matrix, np.array([[max(sigma_altitude, 0.05) ** 2]]), self.config.integration.baro_nis_gate)
-        if aid.kind == SensorId.GNSS_SOLUTION:
+        if aid.kind == SensorId.ZED_F9P_UBX:
             solution = aid.measurement
-            assert isinstance(solution, GnssSolution)
-            position_enu = self.ecef_from_enu.T @ (np.asarray(solution.position_ecef_m) - self.origin_ecef)
-            velocity_enu = self.ecef_from_enu.T @ np.asarray(solution.velocity_ecef_mps)
-            lever = self.config.gnss.antenna_lever_arm_body_m
+            assert isinstance(solution, CanonicalGnssFix)
+            position_enu = solution.position_enu_m
+            velocity_enu = solution.velocity_enu_mps
+            lever = self.config.zed_f9p.antenna_lever_arm_body_m
             rotation = rotation_matrix(self.quaternion)
             lever_nav = rotation @ lever
             lever_velocity_body = np.cross(self.angular_rate_body_rps, lever)
@@ -361,11 +345,7 @@ class InertialEskf:
             matrix[3:, 3:6] = np.eye(3)
             matrix[3:, 6:9] = -rotation @ skew(lever_velocity_body)
             matrix[3:, 12:15] = rotation @ skew(lever)
-            transform = np.zeros((6, 6))
-            transform[:3, :3] = self.ecef_from_enu.T
-            transform[3:, 3:] = self.ecef_from_enu.T
-            covariance = transform @ np.asarray(solution.covariance).reshape(6, 6) @ transform.T
-            return self._inject(innovation, matrix, covariance, self.config.integration.gnss_nis_gate)
+            return self._inject(innovation, matrix, solution.covariance, self.config.integration.gnss_nis_gate)
         return False
 
     def _rewind_with_aid(self, aid: _AidInput) -> bool:
@@ -451,23 +431,21 @@ class InertialEskf:
 
     def process(self, event: MeasurementEvent) -> StateEstimate | None:
         self._track_sequence(event)
-        # ADIS checksum/diagnostic flags are decoded below so their dedicated
-        # health counters remain observable even when VALID is cleared.
-        if event.sensor_id != SensorId.ADIS16470 and not event.status_flags & StatusFlag.VALID:
+        if not event.status_flags & StatusFlag.VALID and event.sensor_id != SensorId.ZED_F9P_UBX:
             self.health["invalid_measurements"] += 1
             self.health[f"{event.sensor_id.name.lower()}_invalid_measurements"] += 1
             return None
-        if event.sensor_id == SensorId.GNSS_PPS:
+        if event.sensor_id == SensorId.ZED_F9P_TIMEPULSE:
             try:
-                pps = GnssPps.from_payload_bytes(event.payload)
+                pulse = decode_timepulse(event.payload)
             except ValueError:
                 self.health["pps_decode_failures"] += 1
                 return None
-            if not pps.time_valid:
+            if not pulse.time_valid:
                 self.health["pps_invalid"] += 1
                 return None
-            self.time_sync.add(event.measurement_ticks, pps.gps_week * GPS_WEEK_NS + pps.tow_ns)
-            self.health["pps_updates"] += 1
+            self.pending_timepulses[(pulse.gps_week, pulse.tow_ms)] = (event.measurement_ticks, pulse)
+            self.health["pps_edges"] += 1
             return self._estimate(event.arrival_ticks) if self.initialized else None
         if event.sensor_id == SensorId.ADXL375:
             try:
@@ -501,32 +479,91 @@ class InertialEskf:
                 return self._estimate(event.arrival_ticks)
             self._ingest_aid(_AidInput(event.measurement_ticks, event.sensor_id, measurement), "bmp")
             return self._estimate(event.arrival_ticks)
-        if event.sensor_id == SensorId.GNSS_SOLUTION:
+        if event.sensor_id == SensorId.ZED_F9P_UBX:
             try:
-                solution = GnssSolution.from_payload_bytes(event.payload)
+                frame = UbxFrame.from_bytes(event.payload)
             except ValueError:
-                self.health["gnss_decode_failures"] += 1
+                self.health["ubx_decode_failures"] += 1
+                return None
+            if frame.message_class == TIM_CLASS and frame.message_id == TIM_TP_ID:
+                if len(frame.payload) != 16:
+                    self.health["tim_tp_decode_failures"] += 1
+                    return None
+                tow_ms, _, _, week, flags, _ = struct.unpack("<IIiHBB", frame.payload)
+                key = (week, tow_ms)
+                pending = self.pending_timepulses.pop(key, None)
+                if pending is None:
+                    self.health["tim_tp_unpaired"] += 1
+                    return None
+                if flags & 0x03 != 0x03:
+                    self.health["tim_tp_invalid"] += 1
+                    return None
+                edge_ticks, _ = pending
+                self.time_sync.add(edge_ticks, week * GPS_WEEK_MS * 1_000_000 + tow_ms * 1_000_000)
+                self.health["pps_updates"] += 1
+                return self._estimate(event.arrival_ticks) if self.initialized else None
+            solution = self.zed_assembler.add(frame, self.config.zed_f9p.gps_week)
+            if solution is None:
+                return None
+            if not solution.fix_valid:
+                self.health["gnss_invalid_fixes_rejected"] += 1
                 return None
             if event.measurement_ticks < self.liftoff_ticks or not self.initialized:
                 self.health["gnss_pad_solutions"] += 1
                 return None
-            self._ingest_aid(_AidInput(event.measurement_ticks, event.sensor_id, solution), "gnss")
+            self._ingest_aid(_AidInput(event.measurement_ticks, SensorId.ZED_F9P_UBX, solution), "gnss")
             return self._estimate(event.arrival_ticks)
-        if event.sensor_id != SensorId.ADIS16470:
+        if event.sensor_id != SensorId.BNO085_SHTP:
             self.health["unsupported_sensor"] += 1
             return None
-
-        measurement = self._decode_adis(event)
-        if measurement is None:
+        try:
+            packet = BnoShtpPacket.from_bytes(event.payload)
+            measurement = decode_bno(event, self.config.bno085)
+        except ValueError:
+            self.health["bno_decode_failures"] += 1
             return None
+        if self.expected_bno_channel_sequence is not None and packet.sequence != self.expected_bno_channel_sequence:
+            self.health["bno_channel_sequence_discontinuities"] += 1
+        self.expected_bno_channel_sequence = (packet.sequence + 1) & 0xFF
+        if measurement.status == 0:
+            self.health["bno_unreliable_reports"] += 1
+            return None
+        if measurement.report_id == GAME_ROTATION_VECTOR_REPORT:
+            self.health["bno_game_rotation_reports"] += 1
+            return None
+        assert measurement.vector is not None
+        if measurement.report_id == ACCELEROMETER_REPORT:
+            saturated = bool(event.status_flags & StatusFlag.SATURATED)
+            self.latest_bno_accel = (event.measurement_ticks, measurement.vector, saturated)
+            if saturated:
+                self.health["bno_accel_saturated"] += 1
+            if event.measurement_ticks < self.liftoff_ticks:
+                self.pad_accelerations.append((event.measurement_ticks, measurement.vector))
+                self.health["bno_accel_pad_samples"] += 1
+            return None
+        if measurement.report_id != UNCALIBRATED_GYROSCOPE_REPORT:
+            self.health["bno_unknown_reports"] += 1
+            return None
+        if event.status_flags & StatusFlag.SATURATED:
+            self.health["bno_gyro_saturated"] += 1
         if event.measurement_ticks < self.liftoff_ticks:
-            self.pad_measurements.append((event.measurement_ticks, measurement))
-            self.health["pad_samples"] += 1
+            self.pad_gyros.append((event.measurement_ticks, measurement.vector))
+            self.health["bno_gyro_pad_samples"] += 1
             return None
         if not self.initialized:
             self._initialize()
-        acceleration, use_adxl = self._select_acceleration(event, measurement)
-        imu = _ImuInput(event.measurement_ticks, acceleration, measurement.gyro_body_rps, use_adxl)
+        latest = self.latest_bno_accel
+        if latest is None:
+            self.health["bno_accel_missing"] += 1
+            return None
+        age = event.measurement_ticks - latest[0]
+        max_age = 2 * self.config.simulation.clock_hz // self.config.bno085.accel_rate_hz
+        if age < 0 or age > max_age:
+            self.health["bno_accel_stale"] += 1
+            return None
+        self.health["bno_accel_max_age_ticks"] = max(self.health["bno_accel_max_age_ticks"], age)
+        acceleration, use_adxl = self._select_acceleration(event, latest[1], latest[2])
+        imu = _ImuInput(event.measurement_ticks, acceleration, measurement.vector, use_adxl)
         if not self._propagate(imu):
             return None
         self._update_flight_phase()

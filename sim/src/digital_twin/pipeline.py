@@ -4,11 +4,11 @@ from __future__ import annotations
 
 from dataclasses import replace
 
-from .adis16470 import Adis16470Model
 from .adxl375 import Adxl375Model
+from .bno085 import Bno085Model
 from .bmp581 import Bmp581Model
 from .config import TwinConfig
-from .gnss import GenericGnssModel
+from .zed_f9p import ZedF9pModel
 from .types import MeasurementEvent, SensorId, TruthSample
 
 
@@ -31,8 +31,8 @@ def schedule_aux_spi(events: list[MeasurementEvent], config: TwinConfig) -> list
 
 
 def generate_all_events(truth: list[TruthSample], config: TwinConfig, seed: int) -> list[MeasurementEvent]:
-    events = Adis16470Model(config.adis16470, config.simulation, seed).generate(truth)
+    events = Bno085Model(config.bno085, config.simulation, seed).generate(truth)
     events += Adxl375Model(config.adxl375, config.simulation, seed).generate(truth)
     events += Bmp581Model(config.bmp581, config.simulation, seed).generate(truth)
-    events += GenericGnssModel(config.gnss, config.launch, config.simulation, seed).generate(truth)
+    events += ZedF9pModel(config.zed_f9p, config.launch, config.simulation, seed).generate(truth)
     return schedule_aux_spi(events, config)

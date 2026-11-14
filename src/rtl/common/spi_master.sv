@@ -138,13 +138,13 @@ always_ff @(posedge sys_clk) begin
                //this should be rigorously analyzed in vivado to check the waveform.
                if(CPHA == 0) begin
                     //if previous sclk edge count was even, this one is odd, so read miso
-                    if(sclk_edge_count[0] == 0) rx_data_reg <= {rx_data_reg[6:0], miso}; 
+                    if(sclk_edge_count[0] == 0) rx_data_reg <= {rx_data_reg[6:0], miso};
                     else if (sclk_edge_count[5:1] < 7) mosi <= tx_data_reg[6-sclk_edge_count[5:1]];
                end
                else begin
                     //CPHA == 1
-                    if(sclk_edge_count[0] == 0) mosi <= tx_data_reg[7-sclk_edge_count[5:1]]; 
-                    else rx_data_reg <= {rx_data_reg[6:0], miso}; 
+                    if(sclk_edge_count[0] == 0) mosi <= tx_data_reg[7-sclk_edge_count[5:1]];
+                    else rx_data_reg <= {rx_data_reg[6:0], miso};
                end
           end
      end

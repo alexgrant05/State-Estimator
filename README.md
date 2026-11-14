@@ -12,13 +12,25 @@ Kalman filter used to validate behavior before flight-hardware deployment.
 - `src/constraints/`: board and timing constraints.
 - `src/tb/`: RTL testbenches.
 - `sim/`: installable Python digital twin, estimator, replay tools, and tests.
+- `spec/fpga_linux_abi.yaml`: canonical FPGA, R5F, Linux, and replay ABI.
+- `linux/rust/`: Rust ABI, device, hardware-test, logger, and replay tools.
+- `linux/kernel/`: minimal DMA ownership shim for Linux.
 - `vivado/`: generated Vivado project, excluded from source control.
+
+## Tentative hardware and software partition
+
+| Platform | Responsibility | Current state |
+| --- | --- | --- |
+| Programmable logic | Sensor buses, 100 MHz timestamps, event capture, buffering, and packet movement | Common timebase, asynchronous capture, FIFO, and arbitration modules implemented |
+| Cortex R5F | Deterministic sensor decoding, source selection, time synchronization, and 15-state ESKF | Python reference complete; embedded port not started |
+| Linux on Cortex A53 | Configuration, logging, telemetry, health reporting, and operator tools | Rust ABI and verification workspace implemented; board integration pending |
+| Python digital twin | Truth, sensor protocols, deterministic replay, estimator reference, faults, and validation | Active and passing |
 
 ## Current reference pipeline
 
 ```text
 10 s pad alignment + Andromeda RocketPy truth at 2000 Hz
-    -> ADIS16470 + ADXL375 + BMP581 + generic GNSS/PPS
+    -> BNO085 + ADXL375 + BMP581 + ZED-F9P
     -> 100 MHz timestamped events and deterministic sensor replays
     -> shared-bus scheduling and high-g acceleration selection
     -> delayed 15-state ESKF fusion with rewind/replay
@@ -28,26 +40,35 @@ Kalman filter used to validate behavior before flight-hardware deployment.
 Implemented digital-twin behavior includes:
 
 - Launch-centered ENU navigation, MSL altitude, and WGS84 ECEF GNSS handling.
-- ADIS16470 at 500 Hz with exact 176-bit burst transactions.
-- ADXL375 at 800 Hz with hysteretic handoff before ADIS saturation.
+- BNO085 calibrated acceleration at 500 Hz, uncalibrated gyro at 400 Hz, and
+  diagnostic game rotation vector at 100 Hz over SHTP and SPI mode 3.
+- ADXL375 at 800 Hz with hysteretic handoff before BNO acceleration saturation.
 - BMP581 at 50 Hz with raw register output, pad calibration, flight-phase
   suppression, transonic disturbance modeling, and innovation gating.
-- Generic GNSS at 10 Hz and PPS at 1 Hz with covariance, latency, clock error,
-  antenna lever arm, correlated outages, and a replaceable receiver adapter.
-- Dedicated ADIS SPI and deterministic shared-SPI arbitration for ADXL and BMP.
+- ZED-F9P standalone GNSS at 5 Hz with UBX NAV-PVT, NAV-COV, TIM-TP, and a
+  separate 1 PPS TIMEPULSE event.
+- Dedicated BNO085 SPI and deterministic shared-SPI arbitration for ADXL and BMP.
 - Separate measurement and arrival epochs plus two seconds of estimator history
   for delayed aiding updates.
 - Deterministic fault injection, binary replay, artifact hashing, and 200-seed
   statistical validation.
+- Exact replay artifacts for BNO085 SHTP, ADXL375 and BMP581 SPI acquisitions,
+  and ZED-F9P SPI. TIMEPULSE edges remain in the logical NDJSON stream.
+
+FPGA-to-Linux ABI v1 defines the AXI-Lite registers, common records, R5F BRAM
+ring, Linux DMA blocks, replay items, interrupts, reset behavior, and flight
+configuration lock. RTL, Rust, Python, and Markdown definitions are generated
+from one schema.
 
 See [sim/README.md](sim/README.md) for sensor conventions, configuration,
 artifacts, detailed verification, and simulation scope.
 
 ## RTL development
 
-The initial common RTL layer contains a 64-bit timebase, asynchronous event
-timestamp capture, a ready/valid synchronous FIFO, and a fixed-priority arbiter.
-Each module has an independent self-checking Verilator test.
+The initial RTL layer contains a 64-bit timebase, asynchronous event timestamp
+capture, a ready/valid synchronous FIFO, a fixed-priority arbiter, and a KR260
+LED bring-up module. Each module has an independent self-checking Verilator
+test.
 
 ```bash
 bash tools/install_rtl_tools.sh
@@ -64,53 +85,105 @@ Windows through MSYS2 UCRT64. Linux CI is the reference environment. See
 Python 3.10 through 3.13 is supported. The reference environment uses the
 versions pinned in `sim/requirements-lock.txt`.
 
-```powershell
+```bash
 cd sim
-py -3.10 -m venv .venv
-.\.venv\Scripts\python.exe -m pip install -r requirements-lock.txt
-.\.venv\Scripts\python.exe -m pip install --no-deps -e .
+python3 -m venv .venv
+.venv/bin/python -m pip install -r requirements-lock.txt
+.venv/bin/python -m pip install --no-deps -e .
 
-.\.venv\Scripts\python.exe -m pytest -q
-.\.venv\Scripts\python.exe -m digital_twin run `
-  --config config\andromeda.toml `
-  --seed 42 `
-  --output outputs\andromeda-all-sensors-seed-42
-.\.venv\Scripts\python.exe -m digital_twin validate `
-  --run outputs\andromeda-all-sensors-seed-42
+.venv/bin/python -m pytest -q
+.venv/bin/python -m digital_twin run \
+  --config config/andromeda.toml \
+  --seed 42 \
+  --output outputs/andromeda-seed-42
+.venv/bin/python -m digital_twin validate \
+  --run outputs/andromeda-seed-42
 ```
 
-The current suite has 43 passing tests. The reference seed-42 Andromeda run
-passes all integration gates with 54,693 events, 1,362 delayed rewinds, zero
-history misses, and RMS errors of 0.149 m position, 0.092 m/s velocity, and
-1.121 degrees attitude. These are reference results, not final flight limits.
+On Windows, replace `.venv/bin/python` with `.venv\Scripts\python.exe`.
+
+The current suite has 56 passing tests. The seed-42 Andromeda pad-to-apogee run
+passes all 17 validation gates with 74,735 measurement events, 13,794 published
+states, and 1,211 delayed rewinds. Current RMS errors are 0.286 m position,
+0.088 m/s velocity, and 0.821 degrees attitude. These are simulation reference
+results, not final flight limits.
+
+The current Andromeda trajectory peaks near 3.89 g, so it does not naturally
+cross the BNO085 handoff or ZED-F9P invalid-fix thresholds. Dedicated analytic
+tests cover BNO saturation, ADXL handoff, 4 g GNSS invalidation, and recovery.
 
 ## Vivado setup
 
-```powershell
+```bash
 vivado -mode batch -source build.tcl
+vivado -mode batch -source tools/vivado_build.tcl
 ```
 
-This regenerates `vivado/State-Estimation/` for the KR260. Generated Vivado
-files are not required by the Python simulation.
+The first command regenerates `vivado/State-Estimation/` for the KR260. The
+second validates the block design, creates its HDL wrapper, runs synthesis and
+implementation, and writes the bitstream and a matching PS initialization script.
+It checks timing, DRC, and the LED/counter configuration-time initial values.
+With the powered board connected to J4 using a micro-USB data cable, check JTAG:
+
+```bash
+vivado -mode batch -source tools/vivado_check_jtag.tcl
+```
+
+The check requires exactly one K26 in the JTAG chain. First complete the
+[static LED and multimeter checks](src/README.md#kr260-led-bring-up). Then, on
+a cold-started bench board without a running OS, initialize the blinking design:
+
+```text
+xsdb tools/xsdb_led_bringup.tcl "vivado/State-Estimation/State-Estimation.runs/impl_1/state_est_bd_wrapper.bit" "vivado/State-Estimation/State-Estimation.runs/impl_1/state_est_bd_wrapper.psu_init.tcl"
+```
+
+This programs the PL, initializes the PS clocks, removes PS/PL isolation, and
+releases PS/PL reset. It checks configuration immediately and five seconds after
+initialization, and reads back the PL0 clock enable. A successful FPGA `DONE`
+readback alone does **not** prove that the PS-provided clock is running.
+`tools/vivado_program.tcl` only programs PL and is suitable for the clock-free
+static diagnostic; it does not initialize the PS. These JTAG operations are
+volatile and do not modify QSPI. Generated Vivado files are not required by the
+Python simulation.
+
+## PetaLinux setup
+
+The Linux image uses PetaLinux 2026.1 to match Vivado 2026.1. WSL2 host
+prerequisites and native ext4 work directories are prepared, and the Vivado
+build exports `vivado/export/state_estimator_kr260.xsa` for the Linux flow.
+PetaLinux itself requires AMD's separately downloaded installer and must run as
+a normal Linux user.
+
+See [docs/petalinux-wsl2.md](docs/petalinux-wsl2.md) for the verified host
+layout, installer command, environment setup, XSA import, and first build.
+
+For the physical bring-up check, connect J2 pin 1 through a 330 ohm resistor to
+the LED anode, then connect the LED cathode to verified J2 pin 9 ground. Verify
+connector numbering and ground continuity before powering the circuit. The LED
+should complete one blink cycle per second after PS initialization. The KR260's
+onboard LEDs are power or PS-managed status indicators and are not repurposed.
 
 ## Project status
 
 - [x] KR260 project skeleton and Zynq UltraScale+ PS block design.
 - [x] Verilator lint, per-module simulation, and RTL CI workflow.
 - [x] Common timebase, event capture, FIFO, and arbitration modules.
-- [x] ADIS16470 model, exact replay, and inertial propagation.
+- [x] KR260 JTAG, PL clock, and external Pmod LED bring-up design and diagnostics.
+- [ ] Confirm static-high voltage and repeatable 1 Hz blinking on the physical board.
+- [x] BNO085 SHTP model, asynchronous reports, and inertial propagation.
 - [x] ADXL375 model and high-g transition logic.
 - [x] BMP581 pressure and temperature model with aided updates.
-- [x] Generic GNSS/PPS model, latency, outages, time sync, and delayed fusion.
+- [x] ZED-F9P UBX model, TIMEPULSE, latency, outages, time sync, and delayed fusion.
 - [x] Merged multi-sensor logical events and per-sensor binary replays.
 - [x] Fault campaigns, 200-seed statistics, and Andromeda integration gates.
-- [x] Replace generic and placeholder values with measured flight-hardware data.
-- [ ] Select the exact GNSS receiver and add its wire-format adapter.
-- [ ] Freeze the common FPGA-to-R5F packet envelope.
-- [ ] Implement sensor acquisition, timestamping, GNSS UART, and PPS capture RTL.
+- [ ] Replace generic and placeholder values with measured flight-hardware data.
+- [ ] Confirm the ZED-F9P module suffix and freeze its configuration profile.
+- [x] Freeze FPGA-to-R5F and FPGA-to-Linux ABI v1 and generated codecs.
+- [ ] Implement sensor acquisition, timestamping, GNSS SPI, and PPS capture RTL.
 - [ ] Port the selector, time sync, ESKF, and delayed replay to Cortex R5F.
 - [ ] Require Python, RTL, and R5F replay parity.
 - [ ] Complete bench calibration, hardware-in-the-loop testing, and flight gates.
 
-Descent, fixed-point estimator behavior, and the final packet envelope remain
-deferred until the receiver and hardware interfaces are finalized.
+Descent and fixed-point estimator behavior remain deferred. The ABI is frozen,
+but the sensor controllers, DMA block packer, and Vivado interconnect still need
+hardware integration.

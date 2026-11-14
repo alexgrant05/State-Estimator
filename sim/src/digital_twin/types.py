@@ -15,11 +15,17 @@ Matrix15 = NDArray[np.float64]
 
 
 class SensorId(IntEnum):
+    """Stable wire identifiers. Legacy identifiers must never be reused."""
+
+    SYSTEM_HEALTH = 0
     ADIS16470 = 1
     ADXL375 = 2
     BMP581 = 3
     GNSS_SOLUTION = 4
     GNSS_PPS = 5
+    BNO085_SHTP = 6
+    ZED_F9P_UBX = 7
+    ZED_F9P_TIMEPULSE = 8
 
 
 class StatusFlag(IntFlag):
@@ -35,6 +41,14 @@ class StatusFlag(IntFlag):
     FIX_INVALID = 1 << 8
     TIME_INVALID = 1 << 9
     OUT_OF_ORDER = 1 << 10
+    BUS_TIMEOUT = 1 << 11
+    CONFIGURATION_ERROR = 1 << 12
+    EVENT_FIFO_OVERFLOW = 1 << 13
+    PACKET_FIFO_OVERFLOW = 1 << 14
+    TRUNCATION = 1 << 15
+    SENSOR_RESET = 1 << 16
+    TIMESTAMP_UNCERTAINTY = 1 << 17
+    TEST_INJECTED = 1 << 18
 
 
 @dataclass(frozen=True, slots=True)
@@ -90,3 +104,37 @@ class StateEstimate:
     valid: bool
     health: Mapping[str, int] = field(default_factory=dict)
     gps_time_ns: int | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class DecodedInertialReport:
+    """Estimator-facing BNO085 report independent of SHTP framing."""
+
+    report_id: int
+    report_sequence: int
+    status: int
+    vector: Vector3 | None = None
+    bias: Vector3 | None = None
+    quaternion_body_to_nav: Quaternion | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class CanonicalGnssFix:
+    """A complete PVT and covariance pair in launch-centered ENU."""
+
+    gps_week: int
+    tow_ms: int
+    position_enu_m: Vector3
+    velocity_enu_mps: Vector3
+    covariance: NDArray[np.float64]
+    fix_valid: bool
+    time_valid: bool
+    satellites: int
+
+
+@dataclass(frozen=True, slots=True)
+class TimePulse:
+    gps_week: int
+    tow_ms: int
+    uncertainty_ns: float
+    time_valid: bool

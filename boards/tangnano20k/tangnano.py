@@ -71,9 +71,16 @@ def run_command(command: list[str], cwd: Path = REPO_ROOT, log: Path | None = No
         raise subprocess.CalledProcessError(result.returncode, command)
 
 
+# Shared repo RTL this board instantiates: gnss_scc and the common modules it uses.
+# Listed explicitly instead of globbing all of src/rtl, so unrelated or
+# work-in-progress modules elsewhere in the repo can't break this board's lint or build.
+SHARED_COMMON_MODULES = ["async_event_capture", "fixed_priority_arbiter", "spi_master", "sync_fifo", "timebase_counter"]
+
+
 def rtl_sources() -> list[Path]:
-    # Shared repo RTL is included so later steps can instantiate gnss_scc etc.
-    return sorted(BOARD_RTL.glob("*.sv")) + sorted(SHARED_RTL.rglob("*.sv"))
+    common = [SHARED_RTL / "common" / f"{name}.sv" for name in SHARED_COMMON_MODULES]
+    gnss = sorted((SHARED_RTL / "sensors" / "gnss").glob("*.sv"))
+    return sorted(BOARD_RTL.glob("*.sv")) + common + gnss
 
 
 def relative(path: Path) -> str:

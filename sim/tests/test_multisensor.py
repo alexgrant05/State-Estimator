@@ -3,13 +3,12 @@ from dataclasses import replace
 import numpy as np
 import pytest
 
-from digital_twin.adis16470 import Adis16470Model
 from digital_twin.adxl375 import Adxl375Model, AdxlFaultSchedule, decode_accel, encode_accel
+from digital_twin.bno085 import Bno085Model, BnoFaultSchedule
 from digital_twin.bmp581 import Bmp581Model, BmpFaultSchedule, decode_event as decode_bmp, encode_pressure_pa, encode_temperature_c
 from digital_twin.eskf import InertialEskf
 from digital_twin.frames import rocketpy_initial_quaternion
 from digital_twin.geodesy import ecef_to_enu, enu_to_ecef, geodetic_to_ecef
-from digital_twin.gnss import GenericGnssModel, GnssFaultSchedule
 from digital_twin.pipeline import generate_all_events, schedule_aux_spi
 from digital_twin.transport import (
     ADXL_INT_SOURCE_COMMAND,
@@ -18,13 +17,12 @@ from digital_twin.transport import (
     BMP_READ_COMMAND,
     AdxlAcquisition,
     BmpAcquisition,
-    GnssPps,
-    GnssSolution,
     read_events,
     write_multi_replay,
 )
 from digital_twin.truth import analytic_truth
 from digital_twin.types import SensorId, StatusFlag
+from digital_twin.zed_f9p import NAV_CLASS, NAV_PVT_ID, UbxFrame, ZedF9pModel, ZedFaultSchedule, ZedMessageAssembler, decode_timepulse
 
 
 def _pad_then_acceleration(config, acceleration, duration_s=0.2):
@@ -84,20 +82,24 @@ def test_bmp_raw_scales_negative_temperature_and_timing(twin_config):
     assert np.all(np.diff([value.measurement_ticks for value in events]) == 2_000_000)
 
 
-def test_gnss_canonical_codec_frames_and_rates(twin_config):
+def test_zed_ubx_frames_and_rates(twin_config):
     origin = geodetic_to_ecef(twin_config.launch.latitude_deg, twin_config.launch.longitude_deg, twin_config.launch.elevation_msl_m)
     offset = np.array([10.0, -3.0, 5.0])
     assert ecef_to_enu(enu_to_ecef(offset, twin_config.launch.latitude_deg, twin_config.launch.longitude_deg), twin_config.launch.latitude_deg, twin_config.launch.longitude_deg) == pytest.approx(offset)
-    events = GenericGnssModel(twin_config.gnss, twin_config.launch, twin_config.simulation, 14).generate(analytic_truth(1.1, elevation_msl_m=twin_config.launch.elevation_msl_m))
-    solutions = [event for event in events if event.sensor_id == SensorId.GNSS_SOLUTION]
-    pulses = [event for event in events if event.sensor_id == SensorId.GNSS_PPS]
-    assert np.all(np.diff([event.measurement_ticks for event in solutions]) == 10_000_000)
+    events = ZedF9pModel(twin_config.zed_f9p, twin_config.launch, twin_config.simulation, 14).generate(analytic_truth(1.1, elevation_msl_m=twin_config.launch.elevation_msl_m))
+    solutions = [event for event in events if event.sensor_id == SensorId.ZED_F9P_UBX and (lambda frame: frame.message_class == NAV_CLASS and frame.message_id == NAV_PVT_ID)(UbxFrame.from_bytes(event.payload))]
+    pulses = [event for event in events if event.sensor_id == SensorId.ZED_F9P_TIMEPULSE]
+    assert np.all(np.diff([event.measurement_ticks for event in solutions]) == 20_000_000)
     assert np.all(np.abs(np.diff([event.measurement_ticks for event in pulses]) - 100_000_000) <= 12)
-    solution = GnssSolution.from_payload_bytes(solutions[0].payload)
-    pulse = GnssPps.from_payload_bytes(pulses[0].payload)
-    assert len(solution.covariance) == 36
+    assembler = ZedMessageAssembler(twin_config.launch)
+    fix = None
+    for event in events:
+        if event.sensor_id == SensorId.ZED_F9P_UBX:
+            fix = assembler.add(UbxFrame.from_bytes(event.payload), twin_config.zed_f9p.gps_week) or fix
+    pulse = decode_timepulse(pulses[0].payload)
+    assert fix is not None and fix.covariance.shape == (6, 6)
     assert pulse.time_valid
-    assert np.linalg.norm(np.asarray(solution.position_ecef_m) - origin) < 20.0
+    assert np.linalg.norm(fix.position_enu_m) < 20.0
 
 
 def test_aux_spi_is_serialized_with_adxl_priority(twin_config):
@@ -111,10 +113,10 @@ def test_aux_spi_is_serialized_with_adxl_priority(twin_config):
 
 
 def test_high_g_handoff_uses_adxl(twin_config):
-    adis = replace(twin_config.adis16470, accel_noise_rms_mg=0.0, gyro_noise_rms_dps=0.0)
+    bno = replace(twin_config.bno085, accel_noise_density_mg_sqrt_hz=0.0, gyro_noise_density_dps_sqrt_hz=0.0)
     adxl = replace(twin_config.adxl375, noise_density_mg_sqrt_hz=0.0)
-    config = replace(twin_config, adis16470=adis, adxl375=adxl, bmp581=replace(twin_config.bmp581, enabled=False), gnss=replace(twin_config.gnss, enabled=False))
-    truth = _pad_then_acceleration(config, np.array([50.0 * config.simulation.gravity_mps2, 0.0, 0.0]))
+    config = replace(twin_config, bno085=bno, adxl375=adxl, bmp581=replace(twin_config.bmp581, enabled=False), zed_f9p=replace(twin_config.zed_f9p, enabled=False))
+    truth = _pad_then_acceleration(config, np.array([12.0 * config.simulation.gravity_mps2, 0.0, 0.0]))
     events = generate_all_events(truth, config, 16)
     estimator = InertialEskf(config)
     estimates = estimator.run(events)
@@ -125,9 +127,9 @@ def test_high_g_handoff_uses_adxl(twin_config):
 
 
 def test_delayed_gnss_rewinds_and_pps_synchronizes(twin_config):
-    adis = replace(twin_config.adis16470, accel_noise_rms_mg=0.0, gyro_noise_rms_dps=0.0)
-    gnss = replace(twin_config.gnss, position_sigma_enu_m=np.full(3, 0.1), velocity_sigma_enu_mps=np.full(3, 0.01), latency_jitter_s=0.0)
-    config = replace(twin_config, adis16470=adis, adxl375=replace(twin_config.adxl375, enabled=False), bmp581=replace(twin_config.bmp581, enabled=False), gnss=gnss)
+    bno = replace(twin_config.bno085, accel_noise_density_mg_sqrt_hz=0.0, gyro_noise_density_dps_sqrt_hz=0.0)
+    gnss = replace(twin_config.zed_f9p, position_sigma_enu_m=np.full(3, 0.1), velocity_sigma_enu_mps=np.full(3, 0.01), latency_jitter_s=0.0)
+    config = replace(twin_config, bno085=bno, adxl375=replace(twin_config.adxl375, enabled=False), bmp581=replace(twin_config.bmp581, enabled=False), zed_f9p=gnss)
     truth = _pad_then_acceleration(config, np.array([0.2, 0.0, 0.1]), duration_s=0.5)
     events = generate_all_events(truth, config, 17)
     estimator = InertialEskf(config)
@@ -143,14 +145,18 @@ def test_new_sensor_fault_campaign_is_deterministic_and_counted(twin_config):
     truth = analytic_truth(0.3, elevation_msl_m=twin_config.launch.elevation_msl_m)
     adxl_faults = AdxlFaultSchedule(overrun=frozenset({2}), packet_loss=frozenset({3}), stuck_sample=frozenset({4}))
     bmp_faults = BmpFaultSchedule(invalid_status=frozenset({2}), packet_loss=frozenset({3}), pressure_spike_pa={4: 500.0})
-    gnss_faults = GnssFaultSchedule(solution_loss=frozenset({1}), invalid_fix=frozenset({2}), pps_loss=frozenset({0}), additional_latency_s={3: 3.0})
+    bno_faults = BnoFaultSchedule(packet_loss=frozenset({1}), duplicate_channel_sequence=frozenset({2}), truncate=frozenset({3}))
+    gnss_faults = ZedFaultSchedule(pvt_loss=frozenset({1}), invalid_fix=frozenset({0}), pps_loss=frozenset({0}), additional_latency_s={3: 3.0})
     adxl = Adxl375Model(twin_config.adxl375, twin_config.simulation, 20).generate(truth, adxl_faults)
     bmp = Bmp581Model(twin_config.bmp581, twin_config.simulation, 20).generate(truth, bmp_faults)
-    gnss = GenericGnssModel(twin_config.gnss, twin_config.launch, twin_config.simulation, 20).generate(truth, gnss_faults)
+    bno = Bno085Model(twin_config.bno085, twin_config.simulation, 20).generate(truth, bno_faults)
+    gnss = ZedF9pModel(twin_config.zed_f9p, twin_config.launch, twin_config.simulation, 20).generate(truth, gnss_faults)
     assert any(event.status_flags & StatusFlag.OVERRUN for event in adxl)
     assert 3 not in {event.sequence_number for event in adxl}
     assert any(not event.status_flags & StatusFlag.VALID for event in bmp)
-    assert 1 not in {event.sequence_number for event in gnss if event.sensor_id == SensorId.GNSS_SOLUTION}
+    assert 1 not in {event.sequence_number for event in bno}
+    pvt_sequences = [event for event in gnss if event.sensor_id == SensorId.ZED_F9P_UBX and UbxFrame.from_bytes(event.payload).message_id == NAV_PVT_ID]
+    assert len(pvt_sequences) < 2
     assert any(event.status_flags & StatusFlag.FIX_INVALID for event in gnss)
     assert adxl == Adxl375Model(twin_config.adxl375, twin_config.simulation, 20).generate(truth, adxl_faults)
 

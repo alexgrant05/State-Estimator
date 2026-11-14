@@ -1,0 +1,13 @@
+[package]
+name = "se-hwtest"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+se-abi = { path = "../se-abi" }
+se-device = { path = "../se-device" }
+
+[lints]
+workspace = true
+

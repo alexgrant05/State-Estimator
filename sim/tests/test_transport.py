@@ -2,7 +2,8 @@ import hashlib
 import json
 from pathlib import Path
 
-from digital_twin.transport import AdisBurst, adis_checksum, event_from_json, event_to_json
+from digital_twin.legacy.adis16470 import AdisBurst, adis_checksum
+from digital_twin.transport import event_from_json, event_to_json
 from digital_twin.types import MeasurementEvent, SensorId, StatusFlag
 
 
@@ -17,7 +18,7 @@ def test_datasheet_byte_sum_checksum_and_transaction_shape():
 
 
 def test_golden_transaction_fixture():
-    fixture = Path(__file__).parent / "fixtures" / "golden_adis_transaction.hex"
+    fixture = Path(__file__).parent / "fixtures" / "legacy" / "golden_adis_transaction.hex"
     expected = bytes.fromhex(fixture.read_text(encoding="ascii").strip())
     burst = AdisBurst.create(
         0x1234,
@@ -35,4 +36,3 @@ def test_logical_event_json_round_trip():
     event = MeasurementEvent(1, SensorId.ADIS16470, 99, 1000, 18600, StatusFlag.VALID, burst.payload_bytes())
     record = json.loads(json.dumps(event_to_json(event)))
     assert event_from_json(record) == event
-

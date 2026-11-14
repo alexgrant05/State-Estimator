@@ -2,7 +2,7 @@ from dataclasses import replace
 
 import numpy as np
 
-from digital_twin.adis16470 import Adis16470Model, FaultSchedule
+from digital_twin.bno085 import Bno085Model, BnoFaultSchedule
 from digital_twin.eskf import InertialEskf
 from digital_twin.frames import rocketpy_initial_quaternion
 from digital_twin.truth import analytic_truth
@@ -32,21 +32,21 @@ def _pad_then_motion(config, duration_s=1.0, acceleration=None, velocity=None, o
 
 
 def _noiseless_config(twin_config):
-    adis = replace(
-        twin_config.adis16470,
-        accel_noise_rms_mg=0.0,
-        gyro_noise_rms_dps=0.0,
+    bno = replace(
+        twin_config.bno085,
+        accel_noise_density_mg_sqrt_hz=0.0,
+        gyro_noise_density_dps_sqrt_hz=0.0,
         accel_bias_mps2=np.zeros(3),
         gyro_bias_rps=np.zeros(3),
     )
-    return replace(twin_config, adis16470=adis)
+    return replace(twin_config, bno085=bno)
 
 
 def test_stationary_pad_initialization_and_propagation(twin_config):
     config = _noiseless_config(twin_config)
     rail_q = rocketpy_initial_quaternion(config.launch.rail_inclination_deg, config.launch.rail_heading_deg)
     truth = analytic_truth(11.0, initial_quaternion=rail_q, elevation_msl_m=config.launch.elevation_msl_m)
-    events = Adis16470Model(config.adis16470, config.simulation, 1).generate(truth)
+    events = Bno085Model(config.bno085, config.simulation, 1).generate(truth)
     estimates = InertialEskf(config).run(events)
     assert estimates
     final = estimates[-1]
@@ -61,11 +61,11 @@ def test_constant_acceleration_propagation_within_quantization_bound(twin_config
     config = _noiseless_config(twin_config)
     acceleration = np.array([1.0, -0.5, 0.25])
     truth = _pad_then_motion(config, acceleration=acceleration)
-    events = Adis16470Model(config.adis16470, config.simulation, 2).generate(truth)
+    events = Bno085Model(config.bno085, config.simulation, 2).generate(truth)
     estimates = InertialEskf(config).run(events)
     reference = {sample.ticks: sample for sample in truth}[estimates[-1].state_ticks]
-    # Half an accelerometer LSB integrated for one second on three axes.
-    acceleration_bound = np.sqrt(3.0) * config.simulation.gravity_mps2 / 800.0 / 2.0
+    # Physical quantization plus asynchronous acceleration hold age.
+    acceleration_bound = np.sqrt(3.0) * config.simulation.gravity_mps2 / 256.0 + np.linalg.norm(acceleration) / config.bno085.accel_rate_hz
     assert np.linalg.norm(estimates[-1].velocity_enu_mps - reference.velocity_enu_mps) < acceleration_bound
     assert np.linalg.norm(estimates[-1].position_enu_m - reference.position_enu_m) < acceleration_bound
 
@@ -73,20 +73,19 @@ def test_constant_acceleration_propagation_within_quantization_bound(twin_config
 def test_constant_angular_rate_propagation(twin_config):
     config = _noiseless_config(twin_config)
     truth = _pad_then_motion(config, omega=np.radians(np.array([0.0, 0.0, 10.0])))
-    events = Adis16470Model(config.adis16470, config.simulation, 3).generate(truth)
+    events = Bno085Model(config.bno085, config.simulation, 3).generate(truth)
     estimates = InertialEskf(config).run(events)
     reference = {sample.ticks: sample for sample in truth}[estimates[-1].state_ticks]
     from digital_twin.frames import attitude_error_deg
 
-    # Bound includes half a 0.1 deg/s output LSB plus the first decimation window.
-    assert attitude_error_deg(estimates[-1].q_body_to_nav, reference.q_body_to_nav) < 0.05
+    assert attitude_error_deg(estimates[-1].q_body_to_nav, reference.q_body_to_nav) < 0.15
 
 
 def test_constant_velocity_mechanization(twin_config):
     config = _noiseless_config(twin_config)
     requested_velocity = np.array([2.0, -1.0, 0.5])
     truth = _pad_then_motion(config, velocity=requested_velocity)
-    events = Adis16470Model(config.adis16470, config.simulation, 5).generate(truth)
+    events = Bno085Model(config.bno085, config.simulation, 5).generate(truth)
     estimator = InertialEskf(config)
     estimates = []
     truth_by_tick = {sample.ticks: sample for sample in truth}
@@ -112,19 +111,13 @@ def test_faults_are_counted_and_filter_remains_finite(twin_config):
     config = _noiseless_config(twin_config)
     rail_q = rocketpy_initial_quaternion(config.launch.rail_inclination_deg, config.launch.rail_heading_deg)
     truth = analytic_truth(10.2, initial_quaternion=rail_q)
-    faults = FaultSchedule(
-        checksum_corruption=frozenset({5002}),
-        diagnostic_error=frozenset({5003}),
-        duplicate_counter=frozenset({5004}),
-        packet_loss=frozenset({5005}),
-    )
-    events = Adis16470Model(config.adis16470, config.simulation, 4).generate(truth, faults)
+    faults = BnoFaultSchedule(packet_loss=frozenset({9002}), duplicate_channel_sequence=frozenset({9003}), truncate=frozenset({9004}))
+    events = Bno085Model(config.bno085, config.simulation, 4).generate(truth, faults)
     estimator = InertialEskf(config)
     estimates = estimator.run(events)
-    assert estimator.health["checksum_failures"] == 1
-    assert estimator.health["diagnostic_failures"] == 1
+    assert estimator.health["bno_decode_failures"] == 1
     assert estimator.health["sequence_discontinuities"] >= 1
-    assert estimator.health["counter_discontinuities"] >= 1
+    assert estimator.health["bno_channel_sequence_discontinuities"] >= 1
     assert estimates
     assert np.all(np.isfinite(estimates[-1].position_enu_m))
     assert np.all(np.isfinite(estimates[-1].covariance))

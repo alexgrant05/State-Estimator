@@ -2,8 +2,8 @@
 
 ## Role
 
-The ADXL375 supplies high-range specific force when ADIS acceleration approaches
-its 40 g limit. It shares the auxiliary SPI bus with the BMP581.
+The ADXL375 supplies high-range specific force when BNO085 acceleration approaches
+its 8 g limit. It shares the auxiliary SPI bus with the BMP581.
 
 ## Sampling and timing
 
@@ -56,12 +56,12 @@ event while sequence numbering continues.
 
 The estimator stores the newest ADXL measurement and removes its pad-estimated
 bias. ADXL is eligible only when it is recent and not saturated. Entry occurs
-when any ADIS acceleration axis exceeds `high_g_enter_fraction * 40 g` or ADIS
-reports saturation. Exit requires ADIS below the lower threshold, acceptable
-ADIS to ADXL overlap NIS, and the configured hold time.
+when any BNO acceleration axis exceeds `high_g_enter_fraction * 8 g` or BNO
+reports saturation. Exit requires BNO below the lower threshold, acceptable
+BNO to ADXL overlap NIS, and the configured hold time.
 
 When ADXL is active, its configured noise density drives acceleration process
-noise. ADIS gyro remains the angular-rate source.
+noise. BNO gyro remains the angular-rate source.
 
 ## Calibration status
 
