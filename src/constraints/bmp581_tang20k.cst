@@ -13,6 +13,8 @@
 //   header 3V3     -> BMP581 VDD and VDDIO      (never the 5V pin)
 //   header GND     -> BMP581 GND
 //
+//   pin 69         uart_tx   -> onboard USB-serial chip (status lines, 115200 8N1)
+//
 // Pins avoided on purpose: 15-20 (onboard LEDs), 26 (5.1k pull-down),
 // 52-53 (tied to 5 V through 2.2k), 75 (pull-down and capacitor on some
 // board revisions), 54-56 and 51 (audio amplifier), 79 (RGB LED).
@@ -53,3 +55,7 @@ IO_PORT "bmp_miso" IO_TYPE=LVCMOS33 PULL_MODE=UP;
 // INT floats until the controller enables it: hold it low
 IO_LOC  "bmp_int" 76;
 IO_PORT "bmp_int" IO_TYPE=LVCMOS33 PULL_MODE=DOWN;
+
+// Status lines to the computer through the onboard USB-serial chip
+IO_LOC  "uart_tx" 69;
+IO_PORT "uart_tx" IO_TYPE=LVCMOS33 PULL_MODE=UP;
