@@ -1,0 +1,61 @@
+// ============================================================================
+// bmp581_tang20k_top on the Sipeed Tang Nano 20K (GW2AR-LV18QN88C8/I7)
+// Physical constraints for Gowin EDA or the open-source flow (nextpnr-himbaechel).
+//
+// Header pins are named by FPGA pin number (the numbers below); find them on
+// the Sipeed Tang Nano 20K pinout diagram before wiring.
+//
+//   header pin 73  bmp_cs_n  -> BMP581 CSB
+//   header pin 74  bmp_sclk  -> BMP581 SCK
+//   header pin 71  bmp_mosi  -> BMP581 SDI
+//   header pin 72  bmp_miso  <- BMP581 SDO
+//   header pin 76  bmp_int   <- BMP581 INT
+//   header 3V3     -> BMP581 VDD and VDDIO      (never the 5V pin)
+//   header GND     -> BMP581 GND
+//
+//   pin 69         uart_tx   -> onboard USB-serial chip (status lines, 115200 8N1)
+//
+// Pins avoided on purpose: 15-20 (onboard LEDs), 26 (5.1k pull-down),
+// 52-53 (tied to 5 V through 2.2k), 75 (pull-down and capacitor on some
+// board revisions), 54-56 and 51 (audio amplifier), 79 (RGB LED).
+// ============================================================================
+
+// 27 MHz crystal
+IO_LOC  "clk" 4;
+IO_PORT "clk" IO_TYPE=LVCMOS33 PULL_MODE=UP;
+
+// S1 = reset, active high when pressed
+IO_LOC  "btn_rst" 88;
+IO_PORT "btn_rst" IO_TYPE=LVCMOS33 PULL_MODE=DOWN;
+
+// Onboard LEDs LED0..LED5 (active low)
+IO_LOC  "led_n[0]" 15;
+IO_PORT "led_n[0]" IO_TYPE=LVCMOS33 PULL_MODE=UP DRIVE=8;
+IO_LOC  "led_n[1]" 16;
+IO_PORT "led_n[1]" IO_TYPE=LVCMOS33 PULL_MODE=UP DRIVE=8;
+IO_LOC  "led_n[2]" 17;
+IO_PORT "led_n[2]" IO_TYPE=LVCMOS33 PULL_MODE=UP DRIVE=8;
+IO_LOC  "led_n[3]" 18;
+IO_PORT "led_n[3]" IO_TYPE=LVCMOS33 PULL_MODE=UP DRIVE=8;
+IO_LOC  "led_n[4]" 19;
+IO_PORT "led_n[4]" IO_TYPE=LVCMOS33 PULL_MODE=UP DRIVE=8;
+IO_LOC  "led_n[5]" 20;
+IO_PORT "led_n[5]" IO_TYPE=LVCMOS33 PULL_MODE=UP DRIVE=8;
+
+// BMP581 on the header
+IO_LOC  "bmp_cs_n" 73;
+IO_PORT "bmp_cs_n" IO_TYPE=LVCMOS33 PULL_MODE=UP DRIVE=8;
+IO_LOC  "bmp_sclk" 74;
+IO_PORT "bmp_sclk" IO_TYPE=LVCMOS33 PULL_MODE=UP DRIVE=8;
+IO_LOC  "bmp_mosi" 71;
+IO_PORT "bmp_mosi" IO_TYPE=LVCMOS33 PULL_MODE=UP DRIVE=8;
+// SDO is not driven until the sensor switches to SPI: keep MISO defined
+IO_LOC  "bmp_miso" 72;
+IO_PORT "bmp_miso" IO_TYPE=LVCMOS33 PULL_MODE=UP;
+// INT floats until the controller enables it: hold it low
+IO_LOC  "bmp_int" 76;
+IO_PORT "bmp_int" IO_TYPE=LVCMOS33 PULL_MODE=DOWN;
+
+// Status lines to the computer through the onboard USB-serial chip
+IO_LOC  "uart_tx" 69;
+IO_PORT "uart_tx" IO_TYPE=LVCMOS33 PULL_MODE=UP;

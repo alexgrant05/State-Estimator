@@ -26,3 +26,7 @@ outputs/
 !build.tcl
 !.gitignore
 !src/
+
+# local FPGA build output
+/build/
+*.vvp
