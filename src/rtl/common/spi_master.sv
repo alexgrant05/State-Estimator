@@ -1,3 +1,4 @@
+`timescale 1ns/1ps
 `default_nettype none
 
 module spi_master #(
@@ -47,12 +48,12 @@ logic hold_cs_reg;
 
 
 //sclk
-bit sclk_internal = CPOL;
+bit sclk_internal;
 
 //timing bookkeeping
 //allow up to clock divide  = 2^16 for very slow signals
-logic [15:0] clks_since_last_sclk_edge = 0;
-logic [5:0] sclk_edge_count = 0;
+logic [15:0] clks_since_last_sclk_edge;
+logic [5:0] sclk_edge_count;
 
 
 
@@ -66,7 +67,7 @@ always_ff @(posedge sys_clk) begin
      if(!rst) begin // keeps repo convention of synchronous active-low reset
           //internal registers
           current_state <= IDLE;
-          sclk_internal <= CPOL;
+          sclk_internal <= 1'(CPOL);
           tx_data_reg <= 0;
           rx_data_reg <= 0;
           clks_since_last_sclk_edge <= 0;
@@ -150,3 +151,5 @@ always_ff @(posedge sys_clk) begin
 end
 
 endmodule
+
+`default_nettype wire

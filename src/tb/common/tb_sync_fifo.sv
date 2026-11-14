@@ -2,7 +2,7 @@
 `default_nettype none
 
 module tb_sync_fifo;
-    logic clk = 1'b0;
+    logic clk;
     logic rst_n = 1'b0;
     logic [7:0] input_data = '0;
     logic input_valid = 1'b0;
@@ -14,7 +14,12 @@ module tb_sync_fifo;
     logic overflow_sticky;
     logic underflow_sticky;
 
-    always #5 clk <= ~clk;
+    // clk is owned entirely by this one process (no declaration initializer), which
+    // keeps Verilator PROCASSINIT quiet without a waiver on any Verilator version
+    initial begin
+        clk = 1'b0;
+        forever #5 clk = ~clk;
+    end
 
     sync_fifo #(
         .DATA_WIDTH(8),

@@ -16,6 +16,7 @@ linux/rust/target/
 *.py[cod]
 *.egg-info/
 .rtl_build/
+boards/*/build/
 
 # PetaLinux is built in the WSL ext4 filesystem. Ignore accidental local output.
 petalinux-build/

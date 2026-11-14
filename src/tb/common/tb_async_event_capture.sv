@@ -2,7 +2,7 @@
 `default_nettype none
 
 module tb_async_event_capture;
-    logic clk = 1'b0;
+    logic clk;
     logic rst_n = 1'b0;
     logic async_event = 1'b0;
     logic [63:0] time_ticks;
@@ -13,7 +13,12 @@ module tb_async_event_capture;
     logic [31:0] overflow_count;
     logic [63:0] held_timestamp;
 
-    always #5 clk <= ~clk;
+    // clk is owned entirely by this one process (no declaration initializer), which
+    // keeps Verilator PROCASSINIT quiet without a waiver on any Verilator version
+    initial begin
+        clk = 1'b0;
+        forever #5 clk = ~clk;
+    end
 
     timebase_counter timebase (
         .clk,
